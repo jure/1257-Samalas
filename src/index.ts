@@ -27,6 +27,11 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
     const helper = new THREE.CameraHelper(camera);
     scene.add(helper);
 
+    // Create a light
+    const light = new THREE.PointLight(0xffffff, 10, 100);
+    light.position.set(0, 0, 0);
+    scene.add(light);
+
     // Create a renderer.
     // TODO Opportunity to gain some bytes by using the default canvas
     const canvas = document.getElementById("c") as HTMLCanvasElement;
@@ -92,7 +97,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
     const xrSupport = await navigator.xr?.isSessionSupported("immersive-vr");
     const text = xrSupport ? "Click to start VR game" : "WebXR not supported";
     const texture = createTextTexture(text, 40, "Helvetica", "white", "black");
-    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+    const material = new THREE.MeshStandardMaterial({ map: texture, transparent: true });
     const geometry = new THREE.PlaneGeometry(texture.image.width / 100, texture.image.height / 100); // Adjust size as needed
     textMesh = new THREE.Mesh(geometry, material);
     // Add helper  to text mesh
@@ -156,7 +161,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
     function setColorForAllChildren(object: THREE.Group, color: THREE.Color) {
       object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          (child.material as THREE.MeshBasicMaterial).color.copy(color);
+          (child.material as THREE.MeshStandardMaterial).color.copy(color);
         }
       });
     }
@@ -222,7 +227,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
 
         // Create a visual representation for the controller: a cube
         const geometry = new THREE.BoxGeometry(0.05, 0.05, 0.1);
-        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
         const cube = new THREE.Mesh(geometry, material);
         controller.add(cube); // Attach the cube to the controller
 
@@ -261,7 +266,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
 
         // Create a cube and animate it between startPlace and endSphere
         const cubeGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-        const cubeMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
         const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
         cube.position.copy(startPlace.position);
         scene.add(cube);
@@ -287,7 +292,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
         const towerRadius = Math.random() * 1.5 + 0.5; // between 0.5 and 2 units
         const towerHeight = Math.random() * 7 + 3; // between 3 and 10 units
         const towerGeometry = new THREE.CylinderGeometry(towerRadius, towerRadius, towerHeight);
-        const towerMaterial = new THREE.MeshBasicMaterial({ color: 0x555555 });
+        const towerMaterial = new THREE.MeshStandardMaterial({ color: 0x555555 });
         const tower = new THREE.Mesh(towerGeometry, towerMaterial);
         tower.position.set(Math.random() * 10 - 5, towerHeight / 2, Math.random() * 10 - 5);
 
@@ -308,12 +313,21 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
       // Extrude settings and mesh creation
       const extrudeSettings = { depth: 2, bevelEnabled: false };
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-      const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+      const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
       const mainBuilding = new THREE.Mesh(geometry, material);
       mainBuilding.rotation.x = Math.PI / 2; // So it extrudes upward
       mainBuilding.position.y = extrudeSettings.depth; // Adjust so base is on the ground
-
       castleGroup.add(mainBuilding);
+
+      // Get the bounding box of the castle to use for the stand
+      const sphere = new THREE.Sphere().setFromPoints(towers, new THREE.Vector3(0, 0, 0));
+      // Get radius for box
+      // Add stand for the castle, so that it's bigger than the castle itself
+      const standGeometry = new THREE.CylinderGeometry(sphere.radius, sphere.radius, 0.1);
+      const standMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+      const stand = new THREE.Mesh(standGeometry, standMaterial);
+
+      castleGroup.add(stand);
       castleGroup.scale.set(0.1, 0.1, 0.1);
       return castleGroup;
     }
@@ -330,7 +344,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
       for (let i = 0; i < sphereCount; i++) {
         // const radius = Math.random() * 0.5 + 0.5; // Random radius between 0.5 and 1
         // const geometry = new THREE.SphereGeometry(radius / 4, 32, 32);
-        const material = new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff }); // Random color
+        const material = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff }); // Random color
         // const sphere = new THREE.Mesh(geometry, material);
 
         // Add to the scene
