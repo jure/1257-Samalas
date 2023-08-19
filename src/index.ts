@@ -1,13 +1,15 @@
 // import { FontLoader } from "https://unpkg.com/three@0.155.0/examples/jsm/loaders/FontLoader.js";
 // import { TextGeometry } from "https://unpkg.com/three/examples/jsm/geometries/TextGeometry.js";
 import XRmanager from "./XRmanager";
-
+import TextMaker from "./TextMaker";
 let intersectedPlace: THREE.Group | null = null; // The sphere currently being pointed at
 let startPlace: THREE.Group | null = null; // The first sphere selected when drawing a line
 let endSphere: THREE.Group | null = null; // The second sphere selected when drawing a line
 let line: THREE.Line | null = null; // The line being drawn
 let textMesh: THREE.Mesh; // The text mesh
 const controllers: THREE.Group[] = [];
+let lastGenerationTime = 0;
+const places: THREE.Object3D[] = [];
 
 import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.module.js").then(
   async (THREE) => {
@@ -24,8 +26,8 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
     );
     camera.position.set(0, 1.6, 3);
 
-    const helper = new THREE.CameraHelper(camera);
-    scene.add(helper);
+    // const helper = new THREE.CameraHelper(camera);
+    // scene.add(helper);
 
     // Create a light
     const light = new THREE.PointLight(0xffffff, 10, 100);
@@ -56,6 +58,18 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
       camera.aspect = width / height;
     });
 
+    // TEST
+    const textMaker = new TextMaker(THREE);
+    // Create a couple of random texts
+    for (let i = 0; i < 20; i++) {
+      const text2 = textMaker.makeText("Hello world" + i);
+      text2.position.set(0, i / 10.0, 2);
+      scene.add(text2);
+    }
+    // Add helper for text
+    // const textHelper = new THREE.BoxHelper(text2, 0xff00ff);
+    // scene.add(textHelper);
+
     function createTextTexture(
       text: string,
       fontSize: number,
@@ -69,7 +83,6 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
 
       const context = canvas.getContext("2d");
 
-      document.body.appendChild(canvas);
       if (!context) {
         throw new Error();
       }
@@ -94,18 +107,27 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
 
       return new THREE.CanvasTexture(canvas);
     }
+
+    function createTextSprite(message: string) {
+      const texture = createTextTexture(message, 20, "Helvetica", "white", "black");
+      const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.frustumCulled = false;
+      sprite.scale.set((0.5 * texture.image.width) / 100, (0.5 * texture.image.height) / 100, 1);
+      return sprite;
+    }
     const xrSupport = await navigator.xr?.isSessionSupported("immersive-vr");
     const text = xrSupport ? "Click to start VR game" : "WebXR not supported";
     const texture = createTextTexture(text, 40, "Helvetica", "white", "black");
-    const material = new THREE.MeshStandardMaterial({ map: texture, transparent: true });
+    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
     const geometry = new THREE.PlaneGeometry(texture.image.width / 100, texture.image.height / 100); // Adjust size as needed
     textMesh = new THREE.Mesh(geometry, material);
     // Add helper  to text mesh
-    const helper1 = new THREE.BoxHelper(textMesh, 0xffff00);
-    helper1.geometry.computeBoundingBox();
-    helper1.geometry.boundingBox?.getCenter(helper1.position);
-    helper1.visible = true;
-    scene.add(helper1);
+    // const helper1 = new THREE.BoxHelper(textMesh, 0xffff00);
+    // helper1.geometry.computeBoundingBox();
+    // helper1.geometry.boundingBox?.getCenter(helper1.position);
+    // helper1.visible = true;
+    // scene.add(helper1);
 
     textMesh.position.set(0, 1.6, -2);
 
@@ -125,6 +147,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
       tempMatrix.identity().extractRotation(controller.matrixWorld);
 
       const ray = new THREE.Raycaster();
+      ray.camera = camera;
       ray.ray.origin.setFromMatrixPosition(controller.matrixWorld);
       ray.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
@@ -165,7 +188,31 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
         }
       });
     }
+    function updateCastleTroopsDisplay(castle: THREE.Group, troopsCount: number) {
+      const sprite = createTextSprite(troopsCount.toString());
+      castle.remove(castle.userData.troopsDisplay); // Remove the old display
+      castle.userData.troopsDisplay = sprite; // Store reference to the new one
+      castle.add(sprite);
+    }
 
+    function generateTroops(castle: THREE.Group) {
+      const sizeFactor = castle.userData.size; // Simple size measure
+      const newTroops = Math.floor(sizeFactor); // Generate troops based on size
+      castle.userData.troops += newTroops;
+      updateCastleTroopsDisplay(castle, castle.userData.troops);
+    }
+
+    function updateTroops() {
+      const now = Date.now();
+
+      if (now - lastGenerationTime > 5000) {
+        // 5000 ms = 5 seconds
+        for (const castle of places) {
+          generateTroops(castle as THREE.Group);
+        }
+        lastGenerationTime = now;
+      }
+    }
     function updatePositions() {
       // Find all meshes that have a startPosition, endPosition, startTime and endTime
       const meshes = scene.children.filter(
@@ -194,6 +241,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
     function render() {
       updatePointing();
       updatePositions();
+      updateTroops();
       renderer.render(scene, camera);
     }
     renderer.setAnimationLoop(render);
@@ -281,8 +329,6 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
       }
     }
 
-    const places: THREE.Object3D[] = [];
-
     function createPlace() {
       const castleGroup = new THREE.Group();
 
@@ -327,6 +373,9 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
       const standMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
       const stand = new THREE.Mesh(standGeometry, standMaterial);
 
+      // The size of the stand indicates the size of the castle
+      castleGroup.userData.size = sphere.radius;
+      castleGroup.userData.troops = 0;
       castleGroup.add(stand);
       castleGroup.scale.set(0.1, 0.1, 0.1);
       return castleGroup;
@@ -340,7 +389,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
 
       textMesh.visible = false;
       // Logic to create random places
-      const sphereCount = 100; // Number of places you want to create
+      const sphereCount = 0; // Number of places you want to create
       for (let i = 0; i < sphereCount; i++) {
         // const radius = Math.random() * 0.5 + 0.5; // Random radius between 0.5 and 1
         // const geometry = new THREE.SphereGeometry(radius / 4, 32, 32);
@@ -363,6 +412,7 @@ import(/* webpackIgnore: true */ "https://unpkg.com/three@0.155.0/build/three.mo
         );
         // scene.add(sphere);
       }
+      (window as any).scene = scene;
     }
   },
 );
