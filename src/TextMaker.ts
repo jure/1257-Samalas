@@ -1,13 +1,117 @@
-const characters = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?";
+const DEFAULT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?";
+export interface TextInstance {
+  setPosition: (x: number, y: number, z: number) => void;
+  updateText: (message: string) => void;
+  innstancedMesh: THREE.InstancedMesh;
+  instanceId: number;
+}
 export default class TextMaker {
-  T: any; // This is THREE, but we can't import it directly.
   texture: THREE.Texture;
-  texts: any[];
+  instanceCount: number;
+  maxInstances: number;
+  maxCharsPerInstance: number;
+  lengthsBuffer: THREE.InstancedBufferAttribute;
+  instanceBuffer: THREE.InstancedBufferAttribute;
+  instancedMesh: THREE.InstancedMesh;
+  characters: string;
+  messagesTexture: THREE.DataTexture;
+  data: Uint8Array;
+  dummies: THREE.Object3D[];
 
-  constructor(T: any) {
-    this.T = T;
+  constructor(characters?: string, maxCharsPerInstance?: number, maxInstances?: number) {
+    this.characters = characters || DEFAULT_CHARS;
+    this.maxCharsPerInstance = maxCharsPerInstance || 128;
+    this.maxInstances = maxInstances || 1024;
     this.texture = this.generateTexture();
-    this.texts = [];
+    this.dummies = [];
+    this.maxInstances = 1024; // for example
+    this.instanceCount = 0;
+    this.lengthsBuffer = new THREE.InstancedBufferAttribute(new Float32Array(this.maxInstances), 1);
+    this.instanceBuffer = new THREE.InstancedBufferAttribute(
+      new Float32Array(this.maxInstances),
+      1,
+    );
+    this.maxCharsPerInstance = 128;
+    this.data = new Uint8Array(this.maxCharsPerInstance * this.maxInstances);
+    this.messagesTexture = new THREE.DataTexture(
+      this.data,
+      this.maxCharsPerInstance, // width
+      this.maxInstances, // height
+      THREE.RedFormat,
+    );
+
+    const textShaderMaterial: THREE.ShaderMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        t: { value: this.texture },
+        m: { value: this.messagesTexture },
+      },
+      vertexShader: `
+          attribute float length;
+          attribute float instance;
+          varying vec2 u;
+          varying vec3 c;
+          varying float l;
+          varying float i;
+
+          void main() {
+              u = uv;
+              l = length;
+              #ifdef USE_INSTANCING_COLOR
+                c = instanceColor;
+              #endif
+              i = instance;
+              gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+          }
+      `,
+      // t = textTexture, m = messageTexture, l = length, c = color, u = uv, i = instance, vUv = uv
+      // cp = charPos, ci = charIndex, cu = charUV, csu = charSizeUV, sx = scaleX, sy = scaleY
+      // cc = charColor
+      fragmentShader: `
+      uniform sampler2D t;
+      uniform sampler2D m;
+      varying float l; // length  
+      varying vec3 c; // color
+      varying vec2 u;
+      varying float i;
+      
+      void main() {
+        int cp = int(floor(mod(u.x * l, 128.0)));
+        vec2 messageUV = vec2(
+          float(cp) / float(${this.maxCharsPerInstance}),
+          i  / float(${this.maxInstances})
+        );
+        float ci = texture2D(m, messageUV).r * 255.0;
+        vec2 cu;
+        float csu = 0.125;  // 64 pixels / 512 pixels
+        float row = floor(ci / 8.0);
+        float col = mod(ci, 8.0);
+        float sx = u.x * l * csu;
+        float sy = (-u.y * 0.10 + 0.11);
+        cu.x = col * csu + mod(sx, csu);
+        cu.y = (1.0 - row * csu) - mod(sy, csu);
+        vec4 cc = texture2D(t, cu);
+        if (cc.a < 0.2) discard;
+        gl_FragColor = (cc) * vec4(c, 1.0);
+      }
+      `,
+    });
+
+    textShaderMaterial.transparent = true;
+    // textShaderMaterial.side = THREE.DoubleSide;
+    textShaderMaterial.vertexColors = true;
+
+    // Init the base mesh
+    const planeGeometry = new THREE.PlaneGeometry(1, 0.1); // Adjust size as needed.
+    // Adding instanced attributes
+    planeGeometry.setAttribute("length", this.lengthsBuffer);
+    planeGeometry.setAttribute("instance", this.instanceBuffer);
+
+    this.instancedMesh = new THREE.InstancedMesh(
+      planeGeometry,
+      textShaderMaterial,
+      this.maxInstances,
+    );
+    this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   }
 
   generateTexture() {
@@ -24,146 +128,83 @@ export default class TextMaker {
     ctx.font = `${size}px monospace`; // Adjust font size to fit within the canvas.
     ctx.fillStyle = "white";
 
-    for (let i = 0; i < characters.length; i++) {
+    for (let i = 0; i < this.characters.length; i++) {
       const x = size * (i % 8) + size / 2;
       const y = size * Math.floor(i / 8) + size;
-      ctx.fillText(characters[i], x, y);
+      ctx.fillText(this.characters[i], x, y);
     }
 
-    const textTexture = new this.T.Texture(canvas);
-    textTexture.needsUpdate = true;
-    return textTexture;
+    const t = new THREE.Texture(canvas);
+    t.needsUpdate = true;
+    return t;
   }
 
-  makeText(message: string) {
-    const planeGeometry = new this.T.PlaneGeometry(1, 1); // Adjust size as needed.
-
-    const textShaderMaterial: THREE.ShaderMaterial = new this.T.ShaderMaterial({
-      uniforms: {
-        textTexture: { value: this.texture },
-        message: { value: null }, // We'll update this for each message.
-        length: { value: message.length },
-        color: { value: new this.T.Vector4(1, 1, 1, 1) },
-      },
-      vertexShader: `
-          varying vec2 u;
-  
-          void main() {
-              u = uv;
-              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-      `,
-      // uniform sampler2D textTexture;
-      // uniform float message[100];
-      // uniform float length;
-      // uniform vec4 color;
-      // varying vec2 vUv;
-
-      // void main() {
-      //   // Which character from the message are we currently on.
-      //   int charPos = int(floor(mod(vUv.x * length, 100.0)));
-
-      //   // Get the character's index from the message.
-      //   float charIndex = message[charPos];
-
-      //   // Convert that index into UV coordinates on the textTexture.
-      //   vec2 charUV;
-      //   float charSizeUV = 0.125;  // 64 pixels / 512 pixels
-
-      //   // Determine the character's position in the texture.
-      //   float row = floor(charIndex / 8.0);
-      //   float col = mod(charIndex, 8.0);
-      //   float scaleX = vUv.x * length * charSizeUV;
-      //   float scaleY = (-vUv.y * 0.10 + 0.11);
-
-      //   // Convert row and column into UV coordinates.
-      //   charUV.x = col * charSizeUV + mod(scaleX, charSizeUV);
-      //   charUV.y = (1.0 - row * charSizeUV) - mod(scaleY, charSizeUV);  // Subtracting since y is inverted in textures.
-
-      //   // Fetch the color from the textTexture and output it.
-      //   vec4 charColor = texture2D(textTexture, charUV);
-
-      //   // If the alpha value of the charColor is below a threshold, discard the fragment.
-      //   if (charColor.a < 0.2) discard;
-
-      //   gl_FragColor = (charColor) * color;
-      // }
-      fragmentShader: `
-      uniform sampler2D textTexture;
-      uniform float message[100];
-      uniform float length;
-      uniform vec4 color;
-      varying vec2 u;
-      
-      void main() {
-        // Which character from the message are we currently on.
-        int charPos = int(floor(mod(u.x * length, 100.0)));
-
-        // Get the character's index from the message.
-        float charIndex = message[charPos];
-    
-        // Convert that index into UV coordinates on the textTexture.
-        vec2 charUV;
-        float charSizeUV = 0.125;  // 64 pixels / 512 pixels
-        
-        // Determine the character's position in the texture.
-        float row = floor(charIndex / 8.0);
-        float col = mod(charIndex, 8.0);
-        float scaleX = u.x * length * charSizeUV;
-        float scaleY = (-u.y * 0.10 + 0.11);
-
-        // Convert row and column into UV coordinates.
-        charUV.x = col * charSizeUV + mod(scaleX, charSizeUV);
-        charUV.y = (1.0 - row * charSizeUV) - mod(scaleY, charSizeUV);  // Subtracting since y is inverted in textures.
-
-        // Fetch the color from the textTexture and output it.
-        vec4 charColor = texture2D(textTexture, charUV);
-    
-        // If the alpha value of the charColor is below a threshold, discard the fragment.
-        if (charColor.a < 0.2) discard;
-    
-        gl_FragColor = (charColor) * color;
-      }
-      `,
-    });
-
-    textShaderMaterial.uniforms.message.value = this.makeShaderText(message);
-    textShaderMaterial.transparent = true;
-    textShaderMaterial.side = this.T.DoubleSide;
-    const textPlane = new this.T.Mesh(planeGeometry, textShaderMaterial);
-
-    // TEST
-    const rand = Math.random();
-    setInterval(() => {
-      const num = 5 + 5 * Math.sin(Date.now() / 1000) * rand;
-      const newMessage = num.toFixed(num);
-      textShaderMaterial.uniforms.message.value = this.makeShaderText(newMessage);
-      textShaderMaterial.uniforms.length.value = newMessage.length;
-      textShaderMaterial.uniforms.color.value = new this.T.Vector4(num / 10.0, 0, 1, 1);
-      textPlane.scale.x = newMessage.length / 10.0;
-      textPlane.scale.y = 0.1;
-      textPlane.rotateY(0.01);
-    }, 16);
-
-    return textPlane;
-  }
-
-  makeShaderText(message: string) {
-    // Convert the message string to a format that the shader understands.
-    const messageData = new Float32Array(100); // Based on the example size above.
+  updateMessageTexture(instanceId: number, message: string) {
     for (let i = 0; i < message.length; i++) {
-      const charIndex = characters.indexOf(message[i].toUpperCase());
+      const charIndex = this.characters.indexOf(message[i].toUpperCase());
       if (charIndex !== -1) {
-        messageData[i] = charIndex;
+        this.data[instanceId * this.maxCharsPerInstance + i] = charIndex;
       }
     }
 
-    return messageData;
+    this.lengthsBuffer.setX(instanceId, message.length);
+    this.lengthsBuffer.needsUpdate = true;
+    // Update scales
+    this.setScale(instanceId, message.length / 10.0, 1, 1);
+    // Mark the texture for update on the next render
+    this.messagesTexture.needsUpdate = true;
   }
 
-  updateText(textPlane: THREE.Mesh, message: string) {
-    (textPlane.material as THREE.ShaderMaterial).uniforms.message.value =
-      this.makeShaderText(message);
-    (textPlane.material as THREE.ShaderMaterial).uniforms.length.value = message.length;
+  addText(message: string, color?: THREE.Color): null | TextInstance {
+    const instanceId = this.instanceCount;
+    // Check if we've reached the max instance count
+    if (this.instanceCount >= this.maxInstances) {
+      console.warn("Max instance count reached!");
+      return null;
+    }
+    this.instanceCount++;
+
+    this.dummies[instanceId] = new THREE.Object3D();
+    // Update the data texture
+    this.updateMessageTexture(instanceId, message);
+    this.instanceBuffer.setX(instanceId, instanceId);
+    this.instanceBuffer.needsUpdate = true;
+    if (color) {
+      this.setColor(instanceId, color);
+    }
+
+    // Return the instanceId for future updates and increment for the next use
+    return {
+      setPosition: (x: number, y: number, z: number) => {
+        this.setPosition(instanceId, x, y, z);
+      },
+      updateText: (message: string, color?: THREE.Color) => {
+        this.updateMessageTexture(instanceId, message);
+      },
+      innstancedMesh: this.instancedMesh,
+      instanceId,
+    };
+  }
+  setColor(instanceId: number, color: THREE.Color) {
+    this.instancedMesh.setColorAt(instanceId, color);
+    if (this.instancedMesh.instanceColor) {
+      this.instancedMesh.instanceColor.needsUpdate = true;
+    }
+  }
+
+  setScale(instanceId: number, x: number, y: number, z: number) {
+    this.dummies[instanceId].scale.set(x, y, z);
+    this.updateMatrix(instanceId);
+  }
+
+  setPosition(instanceId: number, x: number, y: number, z: number) {
+    this.dummies[instanceId].position.set(x, y, z);
+    this.updateMatrix(instanceId);
+  }
+
+  private updateMatrix(instanceId: number) {
+    this.dummies[instanceId].updateMatrix();
+    this.instancedMesh.setMatrixAt(instanceId, this.dummies[instanceId].matrix);
+    this.instancedMesh.instanceMatrix.needsUpdate = true;
   }
 }
