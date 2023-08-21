@@ -2,12 +2,16 @@ import XRmanager from "./XRmanager";
 import TextMaker, { TextInstance } from "./TextMaker";
 let intersectedPlace: THREE.Group | null = null; // The sphere currently being pointed at
 let startPlace: THREE.Group | null = null; // The first sphere selected when drawing a line
-let endSphere: THREE.Group | null = null; // The second sphere selected when drawing a line
+let endPlace: THREE.Group | null = null; // The second sphere selected when drawing a line
 let line: THREE.Line | null = null; // The line being drawn
 let textMesh: THREE.Mesh; // The text mesh
 const controllers: THREE.Group[] = [];
 let lastGenerationTime = 0;
+
 const places: THREE.Object3D[] = [];
+
+// const placeMetadata: { initialTroops: number; owner: null | string }[] = [];
+
 let textMaker: TextMaker;
 const texts: TextInstance[] = [];
 const init = async () => {
@@ -55,13 +59,13 @@ const init = async () => {
   textMaker = new TextMaker();
   scene.add(textMaker.instancedMesh);
   // Create a couple of random texts
-  for (let i = 0; i < 256; i++) {
-    const text2 = textMaker.addText("A".repeat(256));
-    if (text2) {
-      text2.setPosition(0, i / 10.0 - 14.3, -10.0);
-      texts.push(text2);
-    }
-  }
+  // for (let i = 0; i < 256; i++) {
+  //   const text2 = textMaker.addText("A".repeat(256));
+  //   if (text2) {
+  //     text2.setPosition(0, i / 10.0 - 14.3, -10.0);
+  //     texts.push(text2);
+  //   }
+  // }
   // Add helper for text
   // const textHelper = new THREE.BoxHelper(text2, 0xff00ff);
   // scene.add(textHelper);
@@ -105,12 +109,8 @@ const init = async () => {
   }
 
   function createTextSprite(message: string) {
-    const texture = createTextTexture(message, 20, "Helvetica", "white", "black");
-    const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
-    const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.frustumCulled = false;
-    sprite.scale.set((0.5 * texture.image.width) / 100, (0.5 * texture.image.height) / 100, 1);
-    return sprite;
+    const text = textMaker.addText(message);
+    return text;
   }
   const xrSupport = await navigator.xr?.isSessionSupported("immersive-vr");
   const text = xrSupport ? "Click to start VR game" : "WebXR not supported";
@@ -127,7 +127,7 @@ const init = async () => {
 
   textMesh.position.set(0, 1.6, -2);
 
-  // scene.add(textMesh);
+  scene.add(textMesh);
 
   render();
 
@@ -185,29 +185,36 @@ const init = async () => {
     });
   }
   function updateCastleTroopsDisplay(castle: THREE.Group, troopsCount: number) {
-    const sprite = createTextSprite(troopsCount.toString());
-    castle.remove(castle.userData.troopsDisplay); // Remove the old display
-    castle.userData.troopsDisplay = sprite; // Store reference to the new one
-    castle.add(sprite);
+    if (castle.userData.troopsDisplay) {
+      // The more troops, the more red
+      castle.userData.troopsDisplay.updateText(
+        troopsCount.toString(),
+        new THREE.Color(1, 1 - troopsCount / 100, 1 - troopsCount / 100),
+      );
+      castle.userData.troopsDisplay.setScale(1 + troopsCount / 100);
+    } else {
+      castle.userData.troopsDisplay = createTextSprite(troopsCount.toString());
+      castle.userData.troopsDisplay.setPosition(
+        castle.position.x,
+        castle.position.y + 1,
+        castle.position.z,
+      );
+    }
   }
 
-  function generateTroops(castle: THREE.Group) {
+  function generateTroops(castle: THREE.Group, timeDelta: number) {
     const sizeFactor = castle.userData.size; // Simple size measure
-    const newTroops = Math.floor(sizeFactor); // Generate troops based on size
-    castle.userData.troops += newTroops;
-    updateCastleTroopsDisplay(castle, castle.userData.troops);
+    castle.userData.troops += sizeFactor * timeDelta * 0.001;
+    updateCastleTroopsDisplay(castle, Math.floor(castle.userData.troops));
   }
 
   function updateTroops() {
     const now = Date.now();
 
-    if (now - lastGenerationTime > 5000) {
-      // 5000 ms = 5 seconds
-      for (const castle of places) {
-        generateTroops(castle as THREE.Group);
-      }
-      lastGenerationTime = now;
+    for (const castle of places) {
+      generateTroops(castle as THREE.Group, castle.userData.owner ? now - lastGenerationTime : 0);
     }
+    lastGenerationTime = now;
   }
   function updatePositions() {
     // Find all meshes that have a startPosition, endPosition, startTime and endTime
@@ -228,6 +235,24 @@ const init = async () => {
         mesh.position.copy(position);
       } else {
         console.log("removing cube");
+        // If the end place is not owned by the same player, remove troops
+        if (
+          !mesh.userData.endPlace.userData.owner ||
+          mesh.userData.endPlace.userData.owner !== mesh.userData.startPlace.userData.owner
+        ) {
+          const delta = mesh.userData.troops - mesh.userData.endPlace.userData.troops;
+          if (delta > 0) {
+            mesh.userData.endPlace.userData.troops = delta;
+            mesh.userData.endPlace.userData.owner = mesh.userData.startPlace.userData.owner;
+            mesh.userData.endPlace.userData.color = mesh.userData.startPlace.userData.color;
+            setColorForAllChildren(mesh.userData.endPlace, mesh.userData.startPlace.userData.color);
+          } else {
+            mesh.userData.endPlace.userData.troops -= mesh.userData.troops;
+          }
+        } else {
+          // If the end place is owned by the same player, add troops
+          mesh.userData.endPlace.userData.troops += mesh.userData.troops;
+        }
         scene.remove(mesh);
       }
     }
@@ -238,27 +263,6 @@ const init = async () => {
     updatePointing();
     updatePositions();
     updateTroops();
-    for (const text of texts) {
-      // text.setPosition(Math.random());
-      // Randomly generated 256 character string
-      const str = Array.from(
-        { length: 256 },
-        () =>
-          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[
-            Math.floor(Math.random() * 62)
-          ],
-      ).join("");
-
-      text.updateText(str);
-      textMaker.setColor(
-        text.instanceId,
-        new THREE.Color(
-          0.5 + Math.sin(Date.now() / 2000 + text.instanceId / 10.0),
-          0.5 + Math.cos(Date.now() / 400 + text.instanceId / 10.0),
-          0.5 + Math.sin(Date.now() / 1000 + text.instanceId / 10.0),
-        ),
-      );
-    }
     renderer.render(scene, camera);
   }
   renderer.setAnimationLoop(render);
@@ -322,27 +326,37 @@ const init = async () => {
 
   function onSelectEnd() {
     console.log("select end", startPlace, intersectedPlace);
-    endSphere = intersectedPlace;
+    endPlace = intersectedPlace;
     line && scene.remove(line);
     line = null;
 
-    if (startPlace && endSphere) {
+    if (startPlace && endPlace && startPlace !== endPlace) {
       // Reset for the next line draw
 
-      // Create a cube and animate it between startPlace and endSphere
+      // Create a cube and animate it between startPlace and endPlace
       const cubeGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
       const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
       const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
       cube.position.copy(startPlace.position);
+      cube.scale.set(
+        startPlace.userData.troops / 100,
+        startPlace.userData.troops / 100,
+        startPlace.userData.troops / 100,
+      );
+      // Remove half of the troops from the start place
+      cube.userData.troops = startPlace.userData.troops / 2;
+      startPlace.userData.troops -= cube.userData.troops;
       scene.add(cube);
 
       cube.userData.startPosition = startPlace.position.clone();
-      cube.userData.endPosition = endSphere.position.clone();
+      cube.userData.endPosition = endPlace.position.clone();
       cube.userData.startTime = Date.now();
       cube.userData.endTime = cube.userData.startTime + 1000; // 1 second
+      cube.userData.endPlace = endPlace;
+      cube.userData.startPlace = startPlace;
 
       startPlace = null;
-      endSphere = null;
+      endPlace = null;
     }
   }
 
@@ -351,8 +365,12 @@ const init = async () => {
 
     const towers = [];
     const numTowers = Math.floor(Math.random() * 3 + 2);
+    let maxRadius = 0;
     for (let i = 0; i < numTowers; i++) {
       const towerRadius = Math.random() * 1.5 + 0.5; // between 0.5 and 2 units
+      if (towerRadius > maxRadius) {
+        maxRadius = towerRadius;
+      }
       const towerHeight = Math.random() * 7 + 3; // between 3 and 10 units
       const towerGeometry = new THREE.CylinderGeometry(towerRadius, towerRadius, towerHeight);
       const towerMaterial = new THREE.MeshStandardMaterial({ color: 0x555555 });
@@ -383,16 +401,23 @@ const init = async () => {
     castleGroup.add(mainBuilding);
 
     // Get the bounding box of the castle to use for the stand
-    const sphere = new THREE.Sphere().setFromPoints(towers, new THREE.Vector3(0, 0, 0));
+    const sphere = new THREE.Sphere().setFromPoints(towers);
     // Get radius for box
     // Add stand for the castle, so that it's bigger than the castle itself
+
+    sphere.radius = sphere.radius + maxRadius;
     const standGeometry = new THREE.CylinderGeometry(sphere.radius, sphere.radius, 0.1);
     const standMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
     const stand = new THREE.Mesh(standGeometry, standMaterial);
-
+    stand.position.copy(sphere.center);
+    stand.position.y = 0.05; // Adjust so it's on the ground
     // The size of the stand indicates the size of the castle
     castleGroup.userData.size = sphere.radius;
-    castleGroup.userData.troops = 0;
+    // Initial troops
+    castleGroup.userData.troops = Math.floor(Math.random() * sphere.radius * 10);
+    // Initial owner
+    castleGroup.userData.owner = null;
+
     castleGroup.add(stand);
     castleGroup.scale.set(0.1, 0.1, 0.1);
     return castleGroup;
@@ -406,18 +431,24 @@ const init = async () => {
 
     textMesh.visible = false;
     // Logic to create random places
-    const sphereCount = 0; // Number of places you want to create
+    const sphereCount = 20; // Number of places you want to create
     for (let i = 0; i < sphereCount; i++) {
       // const radius = Math.random() * 0.5 + 0.5; // Random radius between 0.5 and 1
       // const geometry = new THREE.SphereGeometry(radius / 4, 32, 32);
-      const material = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff }); // Random color
+      const material = new THREE.MeshStandardMaterial({ color: 0x0000ff }); // Random color
       // const sphere = new THREE.Mesh(geometry, material);
 
       // Add to the scene
       const place = createPlace();
-      scene.add(place);
 
-      place.userData.color = material.color.clone(); // Save the color for later use
+      scene.add(place);
+      if (i === 0) {
+        place.userData.owner = "player";
+        place.userData.color = material.color.clone(); // Save the color for later use
+      } else {
+        place.userData.color = new THREE.Color(0xffffff); // White
+      }
+
       setColorForAllChildren(place, place.userData.color); // Set the color for all children (towers and main building
       places.push(place);
 
@@ -427,7 +458,6 @@ const init = async () => {
         (Math.random() - 0.5) * 10, // Random Y between -5 and 5
         (Math.random() - 0.5) * 10, // Random Z between -5 and 5
       );
-      // scene.add(sphere);
     }
     (window as any).scene = scene;
   }

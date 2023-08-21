@@ -2,7 +2,8 @@ const DEFAULT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?";
 export interface TextInstance {
   setPosition: (x: number, y: number, z: number) => void;
   updateText: (message: string) => void;
-  innstancedMesh: THREE.InstancedMesh;
+  setScale: (scale: number) => void;
+  instancedMesh: THREE.InstancedMesh;
   instanceId: number;
 }
 export default class TextMaker {
@@ -17,6 +18,7 @@ export default class TextMaker {
   messagesTexture: THREE.DataTexture;
   data: Uint8Array;
   dummies: THREE.Object3D[];
+  scales: number[];
 
   constructor(characters?: string, maxCharsPerInstance?: number, maxInstances?: number) {
     this.characters = characters || DEFAULT_CHARS;
@@ -24,6 +26,7 @@ export default class TextMaker {
     this.maxInstances = maxInstances || 1024;
     this.texture = this.generateTexture();
     this.dummies = [];
+    this.scales = []; // This is an additional uniform scaling factor
     this.maxInstances = 1024; // for example
     this.instanceCount = 0;
     this.lengthsBuffer = new THREE.InstancedBufferAttribute(new Float32Array(this.maxInstances), 1);
@@ -97,7 +100,7 @@ export default class TextMaker {
     });
 
     textShaderMaterial.transparent = true;
-    // textShaderMaterial.side = THREE.DoubleSide;
+    textShaderMaterial.side = THREE.DoubleSide;
     textShaderMaterial.vertexColors = true;
 
     // Init the base mesh
@@ -111,6 +114,7 @@ export default class TextMaker {
       textShaderMaterial,
       this.maxInstances,
     );
+    this.instancedMesh.frustumCulled = false;
     this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   }
 
@@ -150,7 +154,8 @@ export default class TextMaker {
     this.lengthsBuffer.setX(instanceId, message.length);
     this.lengthsBuffer.needsUpdate = true;
     // Update scales
-    this.setScale(instanceId, message.length / 10.0, 1, 1);
+    const s = this.scales[instanceId] || 1;
+    this.setScale(instanceId, (message.length * s) / 10.0, 1 * s, 1 * s);
     // Mark the texture for update on the next render
     this.messagesTexture.needsUpdate = true;
   }
@@ -169,9 +174,7 @@ export default class TextMaker {
     this.updateMessageTexture(instanceId, message);
     this.instanceBuffer.setX(instanceId, instanceId);
     this.instanceBuffer.needsUpdate = true;
-    if (color) {
-      this.setColor(instanceId, color);
-    }
+    color && this.setColor(instanceId, color);
 
     // Return the instanceId for future updates and increment for the next use
     return {
@@ -180,8 +183,12 @@ export default class TextMaker {
       },
       updateText: (message: string, color?: THREE.Color) => {
         this.updateMessageTexture(instanceId, message);
+        color && this.setColor(instanceId, color);
       },
-      innstancedMesh: this.instancedMesh,
+      setScale: (s: number) => {
+        this.scales[instanceId] = s;
+      },
+      instancedMesh: this.instancedMesh,
       instanceId,
     };
   }
