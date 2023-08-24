@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="theme-color" content="#000000" />
+      <link rel="shortcut icon" href="%PUBLIC_URL%/favicon.ico" />
+    <title>Untitled</title>
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://unpkg.com/three@v0.155.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@v0.155.0/examples/jsm/"
+          }
+        }
+    </script>
+    <style>
+      body { margin: 0; }
+      canvas { display: block; }
+    </style>
+
+<script id="computeShaderPosition" type="x-shader/x-fragment">
+
+  #define delta ( 1.0 / 60.0 )
+
+  void main() {
+
+    vec2 uv = gl_FragCoord.xy / resolution.xy;
+
+    vec4 tmpPos = texture2D( texturePosition, uv );
+    vec3 pos = tmpPos.xyz;
+    float type = tmpPos.w;
+    vec4 tmpVel = texture2D( textureVelocity, uv );
+    vec3 vel = tmpVel.xyz;
+    float mass = tmpVel.w;
+
+    if ( mass == 0.0 ) {
+      vel = vec3( 0.0 );
+    }
+
+    // Dynamics
+    if(type < 0.5) {
+      // type 0.0 is a fixed particle
+    } else {
+      pos += vel * delta;
+    }
+    gl_FragColor = vec4( pos, type );
+  }
+
+</script>
+
+<!-- Fragment shader for protoplanet's velocity -->
+<script id="computeShaderVelocity" type="x-shader/x-fragment">
+
+  // For PI declaration:
+  #include <common>
+
+  #define delta ( 1.0 / 60.0 )
+
+  uniform float gravityConstant;
+  uniform float density;
+
+  const float width = resolution.x;
+  const float height = resolution.y;
+
+  float radiusFromMass( float mass ) {
+    // Calculate radius of a sphere from mass and density
+    return pow( ( 3.0 / ( 4.0 * PI ) ) * mass / density, 1.0 / 3.0 );
+  }
+  bool compareFloats(float a, float b) {
+    return abs(a - b) < 0.01; // lenient comparison
+  }
+
+  void main()	{
+
+    vec2 uv = gl_FragCoord.xy / resolution.xy;
+    float idParticle = uv.y * resolution.x + uv.x;
+ 
+
+    vec4 tmpPos = texture2D( texturePosition, uv );
+    vec3 pos = tmpPos.xyz;
+    float ourType = tmpPos.w;
+    vec4 tmpVel = texture2D( textureVelocity, uv );
+    vec3 vel = tmpVel.xyz;
+    float mass = tmpVel.w; // also target
+
+    if ( mass > 0.0 ) {
+
+      float radius = radiusFromMass( mass );
+
+      vec3 acceleration = vec3( 0.0 );
+
+      // Gravity interaction
+      for ( float y = 0.0; y < height; y++ ) {
+
+        for ( float x = 0.0; x < width; x++ ) {
+
+          vec2 secondParticleCoords = vec2( x + 0.5, y + 0.5 ) / resolution.xy;
+
+          vec4 pos2Temp = texture2D( texturePosition, secondParticleCoords );
+          vec3 pos2 = pos2Temp.xyz;
+          vec4 velTemp2 = texture2D( textureVelocity, secondParticleCoords );
+          vec3 vel2 = velTemp2.xyz;
+          float mass2 = velTemp2.w;
+
+          float idParticle2 = secondParticleCoords.y * resolution.x + secondParticleCoords.x;
+
+          //gl_FragColor = vec4(secondParticleCoords, resolution.x,idParticle);
+          //return; 
+          
+          if ( idParticle == idParticle2 ) {
+            continue;
+          }
+
+          if ( mass2 == 0.0 ) {
+            continue;
+          }
+
+          vec3 dPos = pos2 - pos;
+          float distance = length( dPos );
+          float radius2 = radiusFromMass( mass2 );
+
+          if ( distance == 0.0 ) {
+            continue;
+          }
+
+          // Checks collision
+          float theirType = pos2Temp.w;
+          // 0.6 is our ship
+          // 0.7 is the enemy ship?
+
+          float distanceSq = distance * distance;
+
+          // Collide with target, the only way to kill a particle
+          // 0.6 type is ships, in that case mass is target id
+          if ( distance < radius + radius2 && compareFloats(ourType, 0.6) && compareFloats(idParticle2, mass)) {
+            // This particle dies
+            mass = 0.0;
+            radius = 0.0;
+            vel = vec3( 0.0 );
+            break;
+          }
+
+          if ( compareFloats(ourType, 0.6) && compareFloats(theirType, 0.6)) {
+            // Ship interactions (all avoid each other)
+            float nearField = -0.1 / (distance * distanceSq); // distance to the 4th power
+
+            acceleration += nearField * normalize( dPos );
+          } else if (compareFloats(ourType, 0.6) && compareFloats(idParticle2, mass)) {
+            // Ships are attracted to the destination
+            // Gravity towards destination
+
+            float gravityField = gravityConstant * mass2 / distanceSq;
+            //gravityField = min( gravityField, 2. );
+
+            acceleration += gravityField * normalize( dPos );
+          } else if (compareFloats(ourType, 0.6) && compareFloats(theirType, 0.1)) { 
+            // Ships are repelled by other castles too
+            float repulsionField = -0.5*gravityConstant * mass2 / (distanceSq*distanceSq*distanceSq);
+            //repulsionField = min( repulsionField, 2. );
+
+            acceleration += repulsionField * normalize( dPos );
+          }
+        }
+
+        if ( mass == 0.0 ) {
+          break;
+        }
+      }
+
+      // Dynamics
+      vel += delta * acceleration;
+      if(length(vel) > 0.) {
+        vel = normalize( vel ) * min( length( vel ), 1.0 );
+      }
+    }
+
+    gl_FragColor = vec4( vel, mass );
+
+  }
+
+</script>
+
+<!-- if ( distance < radius + radius2 ) {
+
+  if ( idParticle < idParticle2 ) {
+
+    // This particle is aggregated by the other
+    vel = ( vel * mass + vel2 * mass2 ) / ( mass + mass2 );
+    mass += mass2;
+    radius = radiusFromMass( mass );
+
+  }
+  else {
+
+    // This particle dies
+    mass = 0.0;
+    radius = 0.0;
+    vel = vec3( 0.0 );
+    break;
+
+  }
+
+} -->
+
+<!-- Particles vertex shader -->
+<script type="x-shader/x-vertex" id="particleVertexShader">
+
+  // For PI declaration:
+  #include <common>
+
+  uniform sampler2D texturePosition;
+  uniform sampler2D textureVelocity;
+
+  uniform float cameraConstant;
+  uniform float density;
+
+  varying vec4 vColor;
+
+  float radiusFromMass( float mass ) {
+    // Calculate radius of a sphere from mass and density
+    return pow( ( 3.0 / ( 4.0 * PI ) ) * mass / density, 1.0 / 3.0 );
+  }
+
+  bool compareFloats(float a, float b) {
+    return abs(a - b) < 0.01;
+  }
+
+  void main() {
+
+
+    vec4 posTemp = texture2D( texturePosition, uv );
+    vec3 pos = posTemp.xyz;
+
+    vec4 velTemp = texture2D( textureVelocity, uv );
+    vec3 vel = velTemp.xyz;
+    float mass = velTemp.w;
+
+    if(compareFloats(posTemp.w,0.6)) {
+      vColor = vec4( 0.0, 1.0, 1.0, 1.0 );
+    } else {
+      vColor = vec4( 1.0, 1.0, 1.0, 0.0 );
+    }
+
+    vec4 mvPosition = modelViewMatrix * vec4( pos, 1.0 );
+
+    // Calculate radius of a sphere from mass and density
+    //float radius = pow( ( 3.0 / ( 4.0 * PI ) ) * mass / density, 1.0 / 3.0 );
+    float radius = radiusFromMass( mass );
+    if ( compareFloats(posTemp.w, .6) ) {
+      radius = 0.1;
+    }
+    // Apparent size in pixels
+    if ( mass == 0.0 ) {
+      vColor = vec4( 0.0, 0.0, 0.0, 0.0 );
+      gl_PointSize = 0.0;
+    } else {
+      gl_PointSize = radius * cameraConstant / ( - mvPosition.z );
+    }
+
+    gl_Position = projectionMatrix * mvPosition;
+
+  }
+
+</script>
+
+<!-- Particles fragment shader -->
+<script type="x-shader/x-fragment" id="particleFragmentShader">
+
+  varying vec4 vColor;
+
+  void main() {
+
+    if ( vColor.y == 0.0 ) discard;
+
+    float f = length( gl_PointCoord - vec2( 0.5, 0.5 ) );
+    if ( f > 0.5 ) {
+      discard;
+    }
+    gl_FragColor = vColor;
+
+  }
+
+</script>
+
+
+  </head>
+
+  <body>
+  </body>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls';
+
+    import Stats from 'three/addons/libs/stats.module.js';
+    import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+
+    import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js';
+
+    // Texture width for simulation (each texel is a debris particle)
+    const WIDTH = 64;
+
+    let container, stats;
+    let camera, scene, renderer, geometry;
+
+    const PARTICLES = WIDTH * WIDTH;
+
+    let gpuCompute;
+    let velocityVariable;
+    let positionVariable;
+    let velocityUniforms;
+    let particleUniforms;
+    let effectController;
+    
+    const ourCastles = [];
+    const enemyCastles = [];
+    
+    // Keeps track of which row is going to which target
+    const rowToTarget = [];
+
+    init();
+    animate();
+
+
+    function init() {
+      const halfWidth = WIDTH / 2;
+      // Generate 16 random castle positions
+      for(let i = 0; i < halfWidth; i++) {
+        const x = Math.random() * 10 - 5;
+        const y = Math.random() * 10 - 5;
+        const z = Math.random() * 10 - 5;
+        ourCastles.push({x, y, z});
+      }
+      // Generate 16 random enemy castle positions
+      for(let i = 0; i < halfWidth; i++) {
+        const x = Math.random() * 10 - 5;
+        const y = Math.random() * 10 - 5;
+        const z = Math.random() * 10 - 5;
+        enemyCastles.push({x, y, z});
+      }
+      // First row is the castle (WIDTH, e.g. 64)
+
+      container = document.createElement( 'div' );
+      document.body.appendChild( container );
+
+      camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 1, 150 );
+      camera.position.y = 4;
+      camera.position.z = 10;
+
+      scene = new THREE.Scene();
+
+      renderer = new THREE.WebGLRenderer();
+      renderer.setPixelRatio( window.devicePixelRatio );
+      renderer.setSize( window.innerWidth, window.innerHeight );
+      container.appendChild( renderer.domElement );
+
+      const controls = new OrbitControls( camera, renderer.domElement );
+      controls.minDistance = 1;
+      controls.maxDistance = 100;
+
+      effectController = {
+        // Can be changed dynamically
+        gravityConstant: 100.0,
+        density: 0.45,
+
+        // Must restart simulation
+        radius: 300,
+        height: 8,
+        exponent: 0.4,
+        maxMass: 15.0,
+        velocity: 70,
+        velocityExponent: 0.2,
+        randVelocity: 0.001
+      };
+
+      initComputeRenderer();
+
+      stats = new Stats();
+      container.appendChild( stats.dom );
+
+      window.addEventListener( 'resize', onWindowResize );
+
+      initGUI();
+
+      initProtoplanets();
+
+      dynamicValuesChanger();
+
+    }
+
+    function initComputeRenderer() {
+
+      gpuCompute = new GPUComputationRenderer( WIDTH, WIDTH, renderer );
+
+      if ( renderer.capabilities.isWebGL2 === false ) {
+
+        gpuCompute.setDataType( THREE.HalfFloatType );
+
+      }
+
+      const dtPosition = gpuCompute.createTexture();
+      const dtVelocity = gpuCompute.createTexture();
+
+      fillTextures( dtPosition, dtVelocity );
+
+      velocityVariable = gpuCompute.addVariable( 'textureVelocity', document.getElementById( 'computeShaderVelocity' ).textContent, dtVelocity );
+      positionVariable = gpuCompute.addVariable( 'texturePosition', document.getElementById( 'computeShaderPosition' ).textContent, dtPosition );
+
+      gpuCompute.setVariableDependencies( velocityVariable, [ positionVariable, velocityVariable ] );
+      gpuCompute.setVariableDependencies( positionVariable, [ positionVariable, velocityVariable ] );
+
+      velocityUniforms = velocityVariable.material.uniforms;
+
+      velocityUniforms[ 'gravityConstant' ] = { value: 0.0 };
+      velocityUniforms[ 'density' ] = { value: 0.0 };
+
+      const error = gpuCompute.init();
+
+      if ( error !== null ) {
+
+        console.error( error );
+
+      }
+
+    }
+
+    function sendFleetFromRandomCastleToRandomCastle() {
+      const ourCastle = ourCastles[Math.floor(Math.random() * ourCastles.length)];
+      const enemyCastleId = ((Math.floor(Math.random() * enemyCastles.length) + WIDTH / 2) + 0.5)/WIDTH;
+
+      // Find the first unoccupied row in rowToTarget
+      let r = 1; // skip the first row
+      while(r < WIDTH && rowToTarget[r] != undefined) {
+        r++;
+      }
+      if (r >= WIDTH) {
+        console.log("No more rows available");
+        return;
+      }
+      addShipsAtRowForTargetWithPosition(r, enemyCastleId, ourCastle.x, ourCastle.y, ourCastle.z);
+      rowToTarget[r] = true;
+    }
+
+
+    function addShipsAtRowForTargetWithPosition( r, target, x, y, z ) {
+      const dtPosition = gpuCompute.createTexture();
+      const dtVelocity = gpuCompute.createTexture();
+
+      // r is row of the texture
+      // x, y, z is the position of the ship
+      // target is the target castle
+      const positionRenderTarget = gpuCompute.getCurrentRenderTarget(positionVariable);
+      renderer.readRenderTargetPixels(positionRenderTarget, 0, 0, positionRenderTarget.width, positionRenderTarget.height, dtPosition.image.data);
+      const velocityRenderTarget = gpuCompute.getCurrentRenderTarget(velocityVariable);
+      renderer.readRenderTargetPixels(velocityRenderTarget, 0, 0, velocityRenderTarget.width, velocityRenderTarget.height, dtVelocity.image.data);      
+
+      // Log the data in dtPosition.image.data as a 64x64 {x,y,z} array
+      console.log(dtPosition.image.data);
+      console.log(dtVelocity.image.data);
+
+
+      dataTextureForShipsInRowForTargetWithPosition(dtPosition, dtVelocity, r, target, x, y, z);
+
+      gpuCompute.renderTexture( dtPosition, positionVariable.renderTargets[ 0 ] );
+      gpuCompute.renderTexture( dtPosition, positionVariable.renderTargets[ 1 ] );
+      gpuCompute.renderTexture( dtVelocity, velocityVariable.renderTargets[ 0 ] );
+      gpuCompute.renderTexture( dtVelocity, velocityVariable.renderTargets[ 1 ] );
+    }
+
+    function dataTextureForShipsInRowForTargetWithPosition( texturePosition, textureVelocity, r, target, x, y, z ) {
+      const posArray = texturePosition.image.data;
+      const velArray = textureVelocity.image.data;
+      const width = texturePosition.image.width;
+      const offset = r * width * 4; // row * width * 4 (because of RGBA values)
+
+      for (let i = 0; i < width ; i++) {
+        // For position texture
+        posArray[offset + i * 4] = x; // x + Math.random();      // R channel for x position
+        posArray[offset + i * 4 + 1] = y + Math.random();  // G channel for y position
+        posArray[offset + i * 4 + 2] = z;   // B channel for z position
+        posArray[offset + i * 4 + 3] = .6; // A channel for type, .6 is ship
+
+        // For velocity texture (initializing all ships with zero velocity)
+        velArray[offset + i * 4] = 0.0;    // R channel for x velocity
+        velArray[offset + i * 4 + 1] = 0.0; // G channel for y velocity
+        velArray[offset + i * 4 + 2] = 0.0; // B channel for z velocity
+        velArray[offset + i * 4 + 3] = target //.0001; // A channel as a placeholder or any other parameter you wish to store
+      }
+    }
+
+    function restartSimulation() {
+
+      const dtPosition = gpuCompute.createTexture();
+      const dtVelocity = gpuCompute.createTexture();
+
+      fillTextures( dtPosition, dtVelocity );
+
+      gpuCompute.renderTexture( dtPosition, positionVariable.renderTargets[ 0 ] );
+      gpuCompute.renderTexture( dtPosition, positionVariable.renderTargets[ 1 ] );
+      gpuCompute.renderTexture( dtVelocity, velocityVariable.renderTargets[ 0 ] );
+      gpuCompute.renderTexture( dtVelocity, velocityVariable.renderTargets[ 1 ] );
+
+    }
+
+    function initProtoplanets() {
+
+      geometry = new THREE.BufferGeometry();
+
+      const positions = new Float32Array( PARTICLES * 3 );
+      let p = 0;
+
+      for ( let i = 0; i < PARTICLES; i ++ ) {
+
+        positions[ p ++ ] = ( Math.random() * 2 - 1 ) * effectController.radius;
+        positions[ p ++ ] = 0; //( Math.random() * 2 - 1 ) * effectController.radius;
+        positions[ p ++ ] = ( Math.random() * 2 - 1 ) * effectController.radius;
+
+      }
+
+      const uvs = new Float32Array( PARTICLES * 2 );
+      p = 0;
+
+      for ( let j = 0; j < WIDTH; j ++ ) {
+
+        for ( let i = 0; i < WIDTH; i ++ ) {
+
+          uvs[ p ++ ] = i / ( WIDTH - 1 );
+          uvs[ p ++ ] = j / ( WIDTH - 1 );
+
+        }
+
+      }
+
+      geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+      geometry.setAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
+
+      particleUniforms = {
+        'texturePosition': { value: null },
+        'textureVelocity': { value: null },
+        'cameraConstant': { value: getCameraConstant( camera ) },
+        'density': { value: 0.0 }
+      };
+
+      // THREE.ShaderMaterial
+      const material = new THREE.ShaderMaterial( {
+        uniforms: particleUniforms,
+        vertexShader: document.getElementById( 'particleVertexShader' ).textContent,
+        fragmentShader: document.getElementById( 'particleFragmentShader' ).textContent
+      } );
+
+      material.extensions.drawBuffers = true;
+
+      const particles = new THREE.Points( geometry, material );
+      particles.matrixAutoUpdate = false;
+      particles.updateMatrix();
+
+      scene.add( particles );
+
+    }
+
+    function fillTextures( texturePosition, textureVelocity ) {
+
+      const posArray = texturePosition.image.data;
+      const velArray = textureVelocity.image.data;
+
+      const radius = effectController.radius;
+      const height = effectController.height;
+      const exponent = effectController.exponent;
+      const maxMass = effectController.maxMass * 1024 / PARTICLES;
+      const maxVel = effectController.velocity;
+      const velExponent = effectController.velocityExponent;
+      const randVel = effectController.randVelocity;
+
+      // velocityTexture.w is target castle
+
+      for ( let k = 0, kl = posArray.length; k < kl; k += 4 ) {
+        // First row of the texture (WIDTH), is the castle locations
+        if(k < 4 * WIDTH / 2) {
+          posArray [ k + 0 ] = ourCastles[k / 4].x;
+          posArray [ k + 1 ] = ourCastles[k / 4].y;
+          posArray [ k + 2 ] = ourCastles[k / 4].z;
+          posArray [ k + 3 ] = 0.1; // fixed
+          velArray [ k + 3 ] = 1.0; // mass
+        } else if (k < 4 * WIDTH) {
+          posArray [ k + 0 ] = enemyCastles[k / 4 - WIDTH / 2].x;
+          posArray [ k + 1 ] = enemyCastles[k / 4 - WIDTH / 2].y;
+          posArray [ k + 2 ] = enemyCastles[k / 4 - WIDTH / 2].z;
+          posArray [ k + 3 ] = 0.1; // fixed
+          velArray [ k + 3 ] = 1.0; // mass
+          // velArray is 0
+        } else {
+          // ships
+          // Fill in texture values
+          posArray[ k + 0 ] = -3.0;
+          posArray[ k + 1 ] = Math.random();
+          posArray[ k + 2 ] = 0;
+          posArray[ k + 3 ] = 99.;
+
+          velArray[ k + 0 ] = 0. //1.0;
+          velArray[ k + 1 ] = 0. //0.5 - Math.random();
+          velArray[ k + 2 ] = 0. // 0.5 - Math.random();
+          velArray[ k + 3 ] = 0. // mass / 1000.0;
+        }
+
+      }
+
+    }
+
+    function onWindowResize() {
+
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+
+      renderer.setSize( window.innerWidth, window.innerHeight );
+
+      particleUniforms[ 'cameraConstant' ].value = getCameraConstant( camera );
+
+    }
+
+    function dynamicValuesChanger() {
+
+      velocityUniforms[ 'gravityConstant' ].value = effectController.gravityConstant;
+      velocityUniforms[ 'density' ].value = effectController.density;
+      particleUniforms[ 'density' ].value = effectController.density;
+
+    }
+
+    function initGUI() {
+
+      const gui = new GUI( { width: 280 } );
+
+      const folder1 = gui.addFolder( 'Dynamic parameters' );
+
+      folder1.add( effectController, 'gravityConstant', 0.0, 1000.0, 0.05 ).onChange( dynamicValuesChanger );
+      folder1.add( effectController, 'density', 0.0, 10.0, 0.001 ).onChange( dynamicValuesChanger );
+
+      const folder2 = gui.addFolder( 'Static parameters' );
+
+      folder2.add( effectController, 'radius', 10.0, 1000.0, 1.0 );
+      folder2.add( effectController, 'height', 0.0, 50.0, 0.01 );
+      folder2.add( effectController, 'exponent', 0.0, 2.0, 0.001 );
+      folder2.add( effectController, 'maxMass', 1.0, 50.0, 0.1 );
+      folder2.add( effectController, 'velocity', 0.0, 150.0, 0.1 );
+      folder2.add( effectController, 'velocityExponent', 0.0, 1.0, 0.01 );
+      folder2.add( effectController, 'randVelocity', 0.0, 50.0, 0.1 );
+
+      const buttonRestart = {
+        restartSimulation: function () {
+          // Send fleet from a random castle to a random castle
+          sendFleetFromRandomCastleToRandomCastle();
+          // addShipsAtRowAndPosition(2, 9, 0, 0);
+          // restartSimulation();
+
+        }
+      };
+
+      folder2.add( buttonRestart, 'restartSimulation' );
+
+      folder1.open();
+      folder2.open();
+
+    }
+
+    function getCameraConstant( camera ) {
+
+      return window.innerHeight / ( Math.tan( THREE.MathUtils.DEG2RAD * 0.5 * camera.fov ) / camera.zoom );
+
+    }
+
+
+    function animate() {
+
+      requestAnimationFrame( animate );
+
+      render();
+      stats.update();
+
+    }
+
+    var numShips = 0;
+    function render() {
+
+      gpuCompute.compute();
+      const texturePosition = gpuCompute.getCurrentRenderTarget( positionVariable ).texture;
+      const textureVelocity = gpuCompute.getCurrentRenderTarget( velocityVariable ).texture;
+
+      particleUniforms[ 'texturePosition' ].value = texturePosition;
+      particleUniforms[ 'textureVelocity' ].value = textureVelocity;
+
+      // Read the current velocities from the texture
+      const size = gpuCompute.getCurrentRenderTarget(velocityVariable).width * gpuCompute.getCurrentRenderTarget(velocityVariable).height;
+      const data = new Float32Array(size * 4);  // Assuming RGBA format
+      const velocityRenderTarget = gpuCompute.getCurrentRenderTarget(velocityVariable);
+      renderer.readRenderTargetPixels(velocityRenderTarget, 0, 0, velocityRenderTarget.width, velocityRenderTarget.height, data);
+
+      // Read the current positions from the texture
+      // const positionRenderTarget = gpuCompute.getCurrentRenderTarget(positionVariable);
+      // renderer.readRenderTargetPixels(positionRenderTarget, 0, 0, positionRenderTarget.width, positionRenderTarget.height, texturePosition.image.data);
+
+      const velocities = [];
+      for (let i = 0; i < size; i++) {
+        // texturePosition.image.data[i * 4 + 3] = 0.0;
+
+        const x = data[i * 4];
+        const y = data[i * 4 + 1];
+        const z = data[i * 4 + 2];
+        const w = data[i * 4 + 3];
+        velocities.push({x, y, z, w});
+      }
+      const newNumShips = velocities.filter(v => v.w > 0.0).length;
+      if(newNumShips != numShips) {
+        // console.log(positionVariable)
+        console.log(newNumShips);
+        numShips = newNumShips;
+      }
+      renderer.render( scene, camera );
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    // Add spheres
+    const sphereGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+    const mainMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+
+    // Add directional light
+    // const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    // directionalLight.position.set(0, 1, 1);
+    // scene.add(directionalLight);
+    const pointLight = new THREE.PointLight(0xffffff, 3, 100);
+    pointLight.position.set(0, 0, 0);
+    scene.add(pointLight);
+
+    // Add spheres for our castles
+    ourCastles.forEach(castle => {
+      const sphere = new THREE.Mesh(sphereGeometry, mainMaterial);
+      sphere.position.set(castle.x, castle.y, castle.z);
+      scene.add(sphere);
+    });
+
+    // Add spheres for enemy castles
+    enemyCastles.forEach(castle => {
+      const sphere = new THREE.Mesh(sphereGeometry, obstacleMaterial);
+      sphere.position.set(castle.x, castle.y, castle.z);
+      scene.add(sphere);
+    });
+    
+    // Handling sphere clicks
+    scene.children.forEach(sphere => {
+        sphere.material.transparent = true;
+        // sphere.material.opacity = 0.5;
+        sphere.cursor = 'pointer';
+    
+        // sphere.on('click', () => {
+            // Increase gravity of clicked sphere
+            // Assign weight to the ships
+        // });
+    });
+    
+
+    
+    
+    </script>
+</html>
+
