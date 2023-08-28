@@ -451,7 +451,12 @@ module.exports = function (webpackEnv) {
             },
             {
               test: /\.glsl$/,
-              use: "webpack-glsl-minify",
+              use: {
+                loader: "webpack-glsl-minify",
+                options: {
+                  output: "source",
+                },
+              },
             },
             // "file" loader makes sure those assets get served by WebpackDevServer.
             // When you `import` an asset, you get its (virtual) filename.
