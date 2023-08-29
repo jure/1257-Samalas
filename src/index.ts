@@ -1,5 +1,6 @@
+import "./zzfx";
 import XRmanager from "./XRmanager";
-import TextMaker, { TextInstance } from "./TextMaker";
+import TextMaker from "./TextMaker";
 import { GPUComputationRenderer } from "./GPUComputationRenderer";
 import computeVelocity from "./shaders/computeVelocity.glsl";
 import computePosition from "./shaders/computePosition.glsl";
@@ -7,34 +8,64 @@ import computeAggregate from "./shaders/computeAggregate.glsl";
 import knightVertex from "./shaders/knight.vertex.glsl";
 import knightFragment from "./shaders/knight.fragment.glsl";
 import { OrbitControls } from "./OrbitControls";
-
-// Temp
+import { playRandomSoundAtPosition } from "./sounds";
 
 import Stats from "three/addons/libs/stats.module.js";
-
-let intersectedPlace: THREE.Group | null = null; // The sphere currently being pointed at
-let startPlace: THREE.Group | null = null; // The first sphere selected when drawing a line
-let endPlace: THREE.Group | null = null; // The second sphere selected when drawing a line
+const intersectedPlace: CustomGroup | null = null; // The sphere currently being pointed at
+let startPlace: CustomGroup | null = null; // The first sphere selected when drawing a line
+let endPlace: CustomGroup | null = null; // The second sphere selected when drawing a line
 let line: THREE.Line; // The line being drawn
-let textMesh: THREE.Mesh; // The text mesh
 const controllers: THREE.Group[] = [];
 let lastGenerationTime = Date.now();
 const WIDTH = 64;
 const PARTICLES = WIDTH * WIDTH;
 let knightUniforms: any;
 
-const places: THREE.Object3D[] = [];
+const places: CustomGroup[] = [];
 const placeSpheres: THREE.Object3D[] = []; // Spheres for easier raycasting
 let renderer: THREE.WebGLRenderer;
 let gpuCompute: GPUComputationRenderer;
-// const placeMetadata: { initialTroops: number; owner: null | string }[] = [];
 let velocityVariable: any;
 let positionVariable: any;
 let aggregateVariable: any;
 let textMaker: TextMaker;
-const rowToTarget: boolean[] = [];
-// const texts: TextInstance[] = [];
 let isDragging = false;
+let gameStarted = false;
+
+const {
+  Texture,
+  Scene,
+  Color,
+  PerspectiveCamera,
+  IcosahedronGeometry,
+  MeshBasicMaterial,
+  Mesh,
+  WebGLRenderer,
+  PointLight,
+  DirectionalLight,
+  Vector3,
+  Vector2,
+  Raycaster,
+  LineBasicMaterial,
+  BufferGeometry,
+  Line,
+  BoxGeometry,
+  ShaderMaterial,
+  MeshStandardMaterial,
+  AudioListener,
+  PositionalAudio,
+  SphereGeometry,
+  Matrix4,
+  CylinderGeometry,
+  Group,
+  MathUtils,
+  BufferAttribute,
+  Points,
+} = THREE;
+
+class CustomGroup extends Group {
+  ud: any;
+}
 
 function fillTextures(texturePosition: THREE.DataTexture, textureVelocity: THREE.DataTexture) {
   const posArray = texturePosition.image.data;
@@ -95,26 +126,62 @@ function initComputeRenderer() {
   }
 }
 
+function gradientTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 256;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error();
+  }
+
+  const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+
+  gradient.addColorStop(0.1, "#000833");
+  gradient.addColorStop(0.6, "#01235E");
+  gradient.addColorStop(0.7, "#01418F");
+  gradient.addColorStop(0.9, "#005AB4");
+
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = new Texture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 const init = async () => {
   // Create a scene
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x505050);
+  const scene = new Scene();
+  scene.background = new Color(0x505050);
 
   // Create a camera
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+  const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
   camera.position.set(0, 1.6, 3);
 
   const stats = new Stats();
   document.body.appendChild(stats.dom);
 
-  // const helper = new THREE.CameraHelper(camera);
+  // Gradient background for an icosahedron
+  const gradTexture = gradientTexture();
+  const gradMaterial = new MeshBasicMaterial({
+    map: gradTexture,
+    side: THREE.BackSide,
+    depthWrite: false,
+  });
+  const gradGeometry = new IcosahedronGeometry(100, 2);
+  const gradMesh = new Mesh(gradGeometry, gradMaterial);
+  scene.add(gradMesh);
+
+  // const helper = new CameraHelper(camera);
   // scene.add(helper);
 
   // Create a light
-  const light = new THREE.PointLight(0xffffff, 10, 100);
+  const light = new PointLight(0xffffff, 10, 100);
   light.position.set(0, 10, 0);
   scene.add(light);
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.1);
+  const directionalLight = new DirectionalLight(0xffffff, 0.1);
   directionalLight.position.set(0, 1, 1);
   scene.add(directionalLight);
 
@@ -124,7 +191,7 @@ const init = async () => {
   if (!canvas) {
     throw new Error("Could not find canvas element");
   }
-  renderer = new THREE.WebGLRenderer({
+  renderer = new WebGLRenderer({
     antialias: true,
     canvas,
   });
@@ -144,13 +211,26 @@ const init = async () => {
 
   // Create the indicator line
   // Start drawing the line from this sphere
-  const lineMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff });
-  const lineGeometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(),
-    new THREE.Vector3(),
-  ]);
-  line = new THREE.Line(lineGeometry, lineMaterial);
+  const lineMaterial = new LineBasicMaterial({ color: 0x00ff00 });
+  const lineGeometry = new BufferGeometry().setFromPoints([new Vector3(), new Vector3()]);
+  line = new Line(lineGeometry, lineMaterial);
   scene.add(line);
+
+  // Positional audio
+  const listener = new AudioListener();
+  camera.add(listener);
+
+  const createPositionalAudioPool = (listener: THREE.AudioListener) => {
+    const audio = new PositionalAudio(listener);
+    audio.setRefDistance(20);
+    scene.add(audio);
+    return audio;
+  };
+  // 8 positional audio sources, to be reused
+  const positionalPool = {
+    player: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
+    enemy: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
+  };
 
   // Logic to create random places
   const sphereCount = 64; // Number of places you want to create
@@ -162,7 +242,7 @@ const init = async () => {
     const x = radius * Math.sin(polar) * Math.cos(azimuthal);
     const y = radius * Math.sin(polar) * Math.sin(azimuthal);
     const z = radius * Math.cos(polar);
-    return new THREE.Vector3(x, y, z);
+    return new Vector3(x, y, z);
   }
 
   const goldenRatio = (1 + Math.sqrt(5)) / 2;
@@ -178,30 +258,31 @@ const init = async () => {
 
     const position = sphericalToCartesian(radius, polar, azimuthal);
 
-    const place = createPlace();
+    const place = createPlace() as CustomGroup;
 
     scene.add(place);
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x0000ff,
+    const material = new MeshStandardMaterial({
+      color: 0x00ff00,
       opacity: 0.5,
-      side: THREE.DoubleSide,
+      transparent: false,
+      //side: THREE.DoubleSide,
     });
     if (i === 0) {
-      place.userData.owner = "player";
-      place.userData.color = material.color.clone(); // Save the color for later use
+      place.ud.owner = "player";
+      place.ud.color = material.color.clone(); // Save the color for later use
+    } else if (i === sphereCount - 1) {
+      place.ud.owner = "enemy";
+      place.ud.color = new Color(0xff0000); // Red
     } else {
-      place.userData.color = new THREE.Color(0xffffff); // White
+      place.ud.color = new Color(0xffffff); // White
     }
 
-    setColorForAllChildren(place, place.userData.color); // Set the color for all children (towers and main building
+    setColorForAllChildren(place, place.ud.color); // Set the color for all children (towers and main building
     places.push(place);
     // Random position in the scene
     place.position.copy(position);
-    const placeSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(place.userData.size / 10.0),
-      material,
-    );
-    placeSphere.position.copy(place.position.clone().addScaledVector(place.userData.center, 0.1));
+    const placeSphere = new Mesh(new SphereGeometry(place.ud.size / 10.0), material);
+    placeSphere.position.copy(place.position.clone());
     placeSpheres.push(placeSphere);
     placeSphere.visible = false;
     scene.add(placeSphere);
@@ -209,176 +290,110 @@ const init = async () => {
     console.log(places.length);
   }
 
-  // for (let i = 0; i < sphereCount; i++) {
-  // const radius = Math.random() * 0.5 + 0.5; // Random radius between 0.5 and 1
-  // const geometry = new THREE.SphereGeometry(radius / 4, 32, 32);
-  // const material = new THREE.MeshStandardMaterial({
-  //   color: 0x0000ff,
-  //   opacity: 0.5,
-  //   side: THREE.DoubleSide,
-  // }); // Random color
-  // // const sphere = new THREE.Mesh(geometry, material);
-
-  // // Add to the scene
-  // const place = createPlace();
-
-  // scene.add(place);
-  // if (i === 0) {
-  //   place.userData.owner = "player";
-  //   place.userData.color = material.color.clone(); // Save the color for later use
-  // } else {
-  //   place.userData.color = new THREE.Color(0xffffff); // White
-  // }
-
-  // setColorForAllChildren(place, place.userData.color); // Set the color for all children (towers and main building
-  // places.push(place);
-  // // Random position in the scene
-  // place.position.set(
-  //   (i % 10.0) * 2 - 9.0, //i / 10.0,
-  //   0, //(Math.random() - 0.5) * 10, // Random X between -5 and 5
-  //   (i / 10.0) * 2 - 6.0, // (Math.random() - 0.5) * 10, // Random Y between -5 and 5
-  //   //(Math.random() - 0.5) * 10, // Random Z between -5 and 5
-  // );
-  // const placeSphere = new THREE.Mesh(
-  //   new THREE.SphereGeometry(place.userData.size / 10.0),
-  //   material,
-  // );
-  // placeSphere.position.copy(place.position);
-  // placeSpheres.push(placeSphere);
-  // placeSphere.visible = false;
-  // scene.add(placeSphere);
-  // }
-
-  // Init compute
   initComputeRenderer();
-
-  // Init knights
   initKnights();
-  // TEST
+
   textMaker = new TextMaker();
   scene.add(textMaker.instancedMesh);
-  // Create a couple of random texts
-  // for (let i = 0; i < 256; i++) {
-  //   const text2 = textMaker.addText("A".repeat(256));
-  //   if (text2) {
-  //     text2.setPosition(0, i / 10.0 - 14.3, -10.0);
-  //     texts.push(text2);
-  //   }
-  // }
-  // Add helper for text
-  // const textHelper = new THREE.BoxHelper(text2, 0xff00ff);
-  // scene.add(textHelper);
-
-  function createTextTexture(
-    text: string,
-    fontSize: number,
-    fontFace: string,
-    textColor: string,
-    bgColor: string | null,
-  ) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 100 * 10;
-    canvas.height = fontSize * 10;
-
-    const context = canvas.getContext("2d");
-
-    if (!context) {
-      throw new Error();
-    }
-    context.font = `${fontSize}px ${fontFace}`;
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-
-    const textWidth = context.measureText(text).width;
-
-    if (bgColor) {
-      context.fillStyle = bgColor;
-      context.fillRect(
-        canvas.width / 2 - textWidth / 2,
-        canvas.height / 2 - fontSize / 2,
-        textWidth,
-        fontSize,
-      );
-    }
-
-    context.fillStyle = textColor;
-    context.fillText(text, canvas.width / 2, canvas.height / 2);
-
-    return new THREE.CanvasTexture(canvas);
-  }
 
   function createTextSprite(message: string) {
     const text = textMaker.addText(message);
     return text;
   }
   const xrSupport = await navigator.xr?.isSessionSupported("immersive-vr");
-  const text = xrSupport ? "Play in VR" : "Play";
-  const texture = createTextTexture(text, 40, "Helvetica", "white", "black");
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-  const geometry = new THREE.PlaneGeometry(texture.image.width / 100, texture.image.height / 100); // Adjust size as needed
-  textMesh = new THREE.Mesh(geometry, material);
-  // Add helper  to text mesh
-  // const helper1 = new THREE.BoxHelper(textMesh, 0xffff00);
-  // helper1.geometry.computeBoundingBox();
-  // helper1.geometry.boundingBox?.getCenter(helper1.position);
-  // helper1.visible = true;
-  // scene.add(helper1);
-
-  textMesh.position.set(0, 1.6, -2);
-
-  scene.add(textMesh);
+  const text = xrSupport ? "Play in VR" : `Play`;
 
   render();
 
   // Update the pointing ray
   // Update function to detect sphere pointing
   function updatePointing() {
-    if (!controllers[0]) return;
+    if (!controllers[0]) return [];
+    const intersects = intersectsFromController();
+    handlePointingMoving(intersects);
+  }
+
+  function intersectsFromController(): THREE.Intersection[] {
     const controller = controllers[0];
     // for (const controller of controllers) {
-    const tempMatrix = new THREE.Matrix4();
-    const userData = controller.userData;
+    const tempMatrix = new Matrix4();
     controller.updateMatrixWorld();
     tempMatrix.identity().extractRotation(controller.matrixWorld);
 
-    const ray = new THREE.Raycaster();
+    const ray = new Raycaster();
     ray.camera = camera;
     ray.ray.origin.setFromMatrixPosition(controller.matrixWorld);
     ray.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-    const intersects = ray.intersectObjects(placeSpheres);
+    return ray.intersectObjects(placeSpheres);
+  }
 
+  function handlePointingMoving(intersects: THREE.Intersection[], event?: MouseEvent) {
     if (intersects.length > 0) {
-      const intersection = intersects[0];
-
-      // Determine the castle group the intersected object belongs to
-      const parentPlace = places[placeSpheres.indexOf(intersection.object)];
-      if (parentPlace) {
-        if (!intersectedPlace || intersectedPlace !== parentPlace) {
-          if (intersectedPlace) {
-            // Reset color of previously intersected sphere
-            setColorForAllChildren(intersectedPlace, intersectedPlace.userData.color);
-          }
-          intersectedPlace = parentPlace as THREE.Group;
-          setColorForAllChildren(intersectedPlace, new THREE.Color(0xff0000));
+      event?.preventDefault();
+      const index = placeSpheres.indexOf(intersects[0].object);
+      console.log("index", index);
+      const place = places[index] as CustomGroup;
+      if (place) {
+        setColorForAllChildren(place, new Color(0xff0000));
+      }
+      if (startPlace && place !== startPlace) {
+        setColorForAllChildren(place, new Color(0xff0000));
+        line.geometry.setFromPoints([startPlace.position, place.position]);
+      }
+      if (endPlace !== place) {
+        if (endPlace) {
+          setColorForAllChildren(endPlace, endPlace.ud.color);
         }
-        if (intersectedPlace) {
-          if (startPlace) {
-            line.geometry.setFromPoints([startPlace.position, intersectedPlace.position]);
-          }
-        }
+        endPlace = place;
       }
     } else {
-      if (intersectedPlace) {
-        setColorForAllChildren(intersectedPlace, intersectedPlace.userData.color);
-        intersectedPlace = null;
+      // hide the line
+      line.geometry.setFromPoints([new Vector3(), new Vector3()]);
+      if (endPlace) {
+        setColorForAllChildren(endPlace, endPlace.ud.color);
+      }
+      console.log("no start intersect");
+    }
+  }
+
+  function handleClickOrTriggerStart(intersects: THREE.Intersection[], event?: MouseEvent) {
+    if (intersects.length > 0) {
+      controls.enabled = false;
+      event?.preventDefault();
+      const place = places[placeSpheres.indexOf(intersects[0].object)];
+      startPlace = place as CustomGroup;
+      isDragging = true;
+    } else {
+      console.log("no start intersect");
+    }
+  }
+
+  function handleClickOrTriggerEnd(intersects: THREE.Intersection[], event?: MouseEvent) {
+    if (intersects.length > 0) {
+      endPlace = places[placeSpheres.indexOf(intersects[0].object)] as CustomGroup;
+      if (startPlace && endPlace !== startPlace) {
+        console.log("startPlace attacks:", startPlace, "endPlace", endPlace);
+        sendFleetFromCastleToCastle(startPlace, endPlace);
       }
     }
+    controls.enabled = true;
+    // Reset
+    if (startPlace) {
+      setColorForAllChildren(startPlace, startPlace.ud.color);
+    }
+    if (endPlace) {
+      setColorForAllChildren(endPlace, endPlace.ud.color);
+    }
+    startPlace = null;
+    endPlace = null;
+    isDragging = false;
+    line.geometry.setFromPoints([new Vector3(), new Vector3()]);
   }
 
   function setColorForAllChildren(object: THREE.Group, color: THREE.Color) {
     object.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
+      if (child instanceof Mesh) {
         const material = child.material as THREE.MeshStandardMaterial;
         material.emissive.copy(color);
         material.color.copy(color);
@@ -386,78 +401,47 @@ const init = async () => {
       }
     });
   }
-  function updateCastleTroopsDisplay(castle: THREE.Group, troopsCount: number) {
-    if (castle.userData.troopsDisplay) {
-      // The more troops, the more red
-      castle.userData.troopsDisplay.updateText(
+  function updateCastleTroopsDisplay(castle: CustomGroup, troopsCount: number) {
+    if (castle.ud.troopsDisplay) {
+      // The higher the number of troops, the closer the color should be
+      // to the owner's color
+      const intensity = Math.min(1, troopsCount / 100);
+
+      castle.ud.troopsDisplay.updateText(
         troopsCount.toString(),
-        new THREE.Color(1, 1 - troopsCount / 100, 1 - troopsCount / 100),
+        new Color(
+          castle.ud.color.r * intensity,
+          castle.ud.color.g * intensity,
+          castle.ud.color.b * intensity,
+        ),
       );
-      castle.userData.troopsDisplay.setScale(1 + troopsCount / 100);
+      castle.ud.troopsDisplay.setScale(Math.min(1 + troopsCount / 100, 2));
     } else {
-      castle.userData.troopsDisplay = createTextSprite(troopsCount.toString());
-      castle.userData.troopsDisplay.setPosition(
+      castle.ud.troopsDisplay = createTextSprite(troopsCount.toString());
+      castle.ud.troopsDisplay.setPosition(
         castle.position.x,
-        castle.position.y + 1,
+        castle.position.y + 0.5,
         castle.position.z,
       );
     }
   }
 
-  function generateTroops(castle: THREE.Group, timeDelta: number) {
-    const sizeFactor = castle.userData.size; // Simple size measure
-    castle.userData.troops += sizeFactor * timeDelta * 0.001;
-    updateCastleTroopsDisplay(castle, Math.floor(castle.userData.troops));
+  function generateTroops(castle: CustomGroup, timeDelta: number) {
+    const sizeFactor = castle.ud.size; // Simple size measure
+    castle.ud.troops += sizeFactor * timeDelta * 0.001;
+    updateCastleTroopsDisplay(castle, Math.floor(castle.ud.troops));
   }
 
   function updateTroops() {
     const now = Date.now();
 
     for (const castle of places) {
-      generateTroops(castle as THREE.Group, castle.userData.owner ? now - lastGenerationTime : 0);
+      generateTroops(
+        castle as CustomGroup,
+        (castle as CustomGroup).ud.owner ? now - lastGenerationTime : 0,
+      );
     }
     lastGenerationTime = now;
-  }
-  function updatePositions() {
-    // Find all meshes that have a startPosition, endPosition, startTime and endTime
-    const meshes = scene.children.filter(
-      (child: THREE.Object3D) =>
-        child.userData.startPosition &&
-        child.userData.endPosition &&
-        child.userData.startTime &&
-        child.userData.endTime,
-    );
-    const now = Date.now();
-    for (const mesh of meshes) {
-      if (now < mesh.userData.endTime) {
-        const { startPosition, endPosition, startTime, endTime } = mesh.userData;
-        const time = (now - startTime) / (endTime - startTime);
-        const position = startPosition.clone().lerp(endPosition, time);
-        console.log("lerping", position);
-        mesh.position.copy(position);
-      } else {
-        console.log("removing cube");
-        // If the end place is not owned by the same player, remove troops
-        if (
-          !mesh.userData.endPlace.userData.owner ||
-          mesh.userData.endPlace.userData.owner !== mesh.userData.startPlace.userData.owner
-        ) {
-          const delta = mesh.userData.troops - mesh.userData.endPlace.userData.troops;
-          if (delta > 0) {
-            mesh.userData.endPlace.userData.troops = delta;
-            mesh.userData.endPlace.userData.owner = mesh.userData.startPlace.userData.owner;
-            mesh.userData.endPlace.userData.color = mesh.userData.startPlace.userData.color;
-            setColorForAllChildren(mesh.userData.endPlace, mesh.userData.startPlace.userData.color);
-          } else {
-            mesh.userData.endPlace.userData.troops -= mesh.userData.troops;
-          }
-        } else {
-          // If the end place is owned by the same player, add troops
-          mesh.userData.endPlace.userData.troops += mesh.userData.troops;
-        }
-        scene.remove(mesh);
-      }
-    }
   }
 
   function checkForShipArrivals() {
@@ -478,22 +462,26 @@ const init = async () => {
       // Check if the ship has collided
       if (dataAgg[i + 3] < 0) {
         // The ship has collided
-        const place = places[Math.floor((-dataAgg[i + 3] - 0.5) * WIDTH)];
+        const place = places[Math.floor((-dataAgg[i + 3] - 0.5) * WIDTH)] as CustomGroup;
         // Deduct points from the castle or perform other actions
+        const shipOwner = dataAgg[i + 1] < 0.6005 ? "player" : "enemy"; // 0.6 is player, 0.601 is enemy
+
         if (place) {
-          // TODO: Encode owner of ship in the texture
-          if (!place.userData.owner || place.userData.owner !== "player") {
-            place.userData.troops -= 1;
-            if (place.userData.troops <= 0) {
+          playRandomSoundAtPosition(shipOwner, place.position, positionalPool);
+
+          if (!place.ud.owner || place.ud.owner !== shipOwner) {
+            place.ud.troops -= 1;
+
+            if (place.ud.troops <= 0) {
               // The castle has been conquered
-              place.userData.troops = 1;
-              place.userData.owner = "player";
-              place.userData.color = new THREE.Color(0x0000ff);
-              setColorForAllChildren(place as THREE.Group, place.userData.color);
+              place.ud.troops = 1;
+              place.ud.owner = shipOwner;
+              place.ud.color = shipOwner === "player" ? new Color(0x00ff00) : new Color(0xff0000);
+              setColorForAllChildren(place as THREE.Group, place.ud.color);
             }
           } else {
             // If the end place is owned by the same player, add troops
-            place.userData.troops += 1;
+            place.ud.troops += 1;
           }
         }
 
@@ -530,45 +518,29 @@ const init = async () => {
   }
   // Animation loop
   function render() {
-    gpuCompute.compute();
-    const texturePosition = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
-    const textureVelocity = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
+    if (gameStarted) {
+      gpuCompute.compute();
+      const texturePosition = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
+      const textureVelocity = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
 
-    knightUniforms["texturePosition"].value = texturePosition;
-    knightUniforms["textureVelocity"].value = textureVelocity;
+      knightUniforms["texturePosition"].value = texturePosition;
+      knightUniforms["textureVelocity"].value = textureVelocity;
 
-    updatePointing();
-    updatePositions();
-    checkForShipArrivals();
-    updateTroops();
+      updatePointing();
+      checkForShipArrivals();
+      updateTroops();
+    }
     renderer.render(scene, camera);
     stats.update();
   }
   renderer.setAnimationLoop(render);
 
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2();
+  const raycaster = new Raycaster();
+  const mouse = new Vector2();
 
   //
   // MOUSE EVENTS
   //
-  window.addEventListener("click", onDocumentMouseClick, false);
-  async function onDocumentMouseClick(event: MouseEvent) {
-    event.preventDefault();
-
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-    raycaster.setFromCamera(mouse, camera);
-
-    const intersects = raycaster.intersectObjects([textMesh]);
-
-    if (intersects.length > 0) {
-      // The 'Start Game' text was clicked
-      await startGame();
-    }
-  }
-
   window.addEventListener("mousedown", onDocumentMouseDown, false);
   document.addEventListener("mousemove", onDocumentMouseMove, false);
   document.addEventListener("mouseup", onDocumentMouseUp, false);
@@ -580,15 +552,7 @@ const init = async () => {
     raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObjects(placeSpheres);
 
-    if (intersects.length > 0) {
-      controls.enabled = false;
-      event.preventDefault();
-      const place = places[placeSpheres.indexOf(intersects[0].object)];
-      startPlace = place as THREE.Group;
-      isDragging = true;
-    } else {
-      console.log("no start intersect");
-    }
+    handleClickOrTriggerStart(intersects, event);
   }
 
   function onDocumentMouseMove(event: MouseEvent) {
@@ -598,36 +562,7 @@ const init = async () => {
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObjects(placeSpheres);
-
-    if (intersects.length > 0) {
-      event.preventDefault();
-      const index = placeSpheres.indexOf(intersects[0].object);
-      console.log("index", index);
-      const place = places[index] as THREE.Group;
-      if (place) {
-        setColorForAllChildren(place, new THREE.Color(0xff0000));
-      }
-      if (startPlace && place !== startPlace) {
-        setColorForAllChildren(place, new THREE.Color(0xff0000));
-        line.geometry.setFromPoints([startPlace.position, place.position]);
-      }
-      if (endPlace !== place) {
-        if (endPlace) {
-          setColorForAllChildren(endPlace, endPlace.userData.color);
-        }
-        endPlace = place;
-      }
-    } else {
-      // hide the line
-      line.geometry.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-      if (endPlace) {
-        setColorForAllChildren(endPlace, endPlace.userData.color);
-      }
-      console.log("no start intersect");
-    }
-
-    // Implement your dragging visualization logic here.
-    // For example, change the color of the selected sphere.
+    handlePointingMoving(intersects);
   }
 
   async function onDocumentMouseUp(event: MouseEvent) {
@@ -640,25 +575,7 @@ const init = async () => {
     raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObjects(placeSpheres);
 
-    if (intersects.length > 0) {
-      endPlace = places[placeSpheres.indexOf(intersects[0].object)] as THREE.Group;
-      if (startPlace && endPlace !== startPlace) {
-        console.log("startPlace attacks:", startPlace, "endPlace", endPlace);
-        sendFleetFromCastleToCastle(startPlace, endPlace);
-      }
-    }
-    controls.enabled = true;
-    // Reset
-    if (startPlace) {
-      setColorForAllChildren(startPlace, startPlace.userData.color);
-    }
-    if (endPlace) {
-      setColorForAllChildren(endPlace, endPlace.userData.color);
-    }
-    startPlace = null;
-    endPlace = null;
-    isDragging = false;
-    line.geometry.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    handleClickOrTriggerEnd(intersects, event);
   }
 
   // Add orbit controller
@@ -671,9 +588,9 @@ const init = async () => {
       scene.add(controller);
 
       // Create a visual representation for the controller: a cube
-      const geometry = new THREE.BoxGeometry(0.05, 0.05, 0.1);
-      const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-      const cube = new THREE.Mesh(geometry, material);
+      const geometry = new BoxGeometry(0.05, 0.05, 0.1);
+      const material = new MeshStandardMaterial({ color: 0x00ff00 });
+      const cube = new Mesh(geometry, material);
       controller.add(cube); // Attach the cube to the controller
 
       controllers.push(controller);
@@ -684,108 +601,36 @@ const init = async () => {
 
   function onSelectStart() {
     console.log("select start");
-    if (intersectedPlace) {
-      if (!startPlace) {
-        startPlace = intersectedPlace;
-      }
-    }
+    const intersects = intersectsFromController();
+    handleClickOrTriggerStart(intersects);
   }
 
   function onSelectEnd() {
     console.log("select end", startPlace, intersectedPlace);
     endPlace = intersectedPlace;
-    line.geometry.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-
-    if (startPlace && endPlace && startPlace !== endPlace) {
-      // Reset for the next line draw
-
-      // Create a cube and animate it between startPlace and endPlace
-      const cubeGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-      const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-      const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
-      cube.position.copy(startPlace.position);
-      cube.scale.set(
-        startPlace.userData.troops / 100,
-        startPlace.userData.troops / 100,
-        startPlace.userData.troops / 100,
-      );
-      // Remove half of the troops from the start place
-      cube.userData.troops = startPlace.userData.troops / 2;
-      startPlace.userData.troops -= cube.userData.troops;
-      scene.add(cube);
-
-      cube.userData.startPosition = startPlace.position.clone();
-      cube.userData.endPosition = endPlace.position.clone();
-      cube.userData.startTime = Date.now();
-      cube.userData.endTime = cube.userData.startTime + 1000; // 1 second
-      cube.userData.endPlace = endPlace;
-      cube.userData.startPlace = startPlace;
-
-      startPlace = null;
-      endPlace = null;
-    }
+    const intersects = intersectsFromController();
+    handleClickOrTriggerEnd(intersects);
   }
 
   function createPlace() {
-    const castleGroup = new THREE.Group();
+    const castleGroup = new CustomGroup();
 
-    const towers = [];
-    const numTowers = Math.floor(Math.random() * 3 + 2);
-    let maxRadius = 0;
-    for (let i = 0; i < numTowers; i++) {
-      const towerRadius = Math.random() * 1.5 + 0.5; // between 0.5 and 2 units
-      if (towerRadius > maxRadius) {
-        maxRadius = towerRadius;
-      }
-      const towerHeight = Math.random() * 7 + 3; // between 3 and 10 units
-      const towerGeometry = new THREE.CylinderGeometry(towerRadius, towerRadius, towerHeight);
-      const towerMaterial = new THREE.MeshStandardMaterial({ color: 0x555555 });
-      const tower = new THREE.Mesh(towerGeometry, towerMaterial);
-      tower.position.set(Math.random() * 10 - 5, towerHeight / 2, Math.random() * 10 - 5);
-
-      towers.push(tower.position);
-      castleGroup.add(tower);
-    }
-
-    // Create the shape for the main building
-    const shape = new THREE.Shape();
-
-    // Begin with the first tower
-    shape.moveTo(towers[0].x, towers[0].z);
-    for (let i = 1; i < towers.length; i++) {
-      shape.lineTo(towers[i].x, towers[i].z);
-    }
-    shape.lineTo(towers[0].x, towers[0].z); // Close the shape
-
-    // Extrude settings and mesh creation
-    const extrudeSettings = { depth: 2, bevelEnabled: false };
-    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
-    const mainBuilding = new THREE.Mesh(geometry, material);
-    mainBuilding.rotation.x = Math.PI / 2; // So it extrudes upward
-    mainBuilding.position.y = extrudeSettings.depth; // Adjust so base is on the ground
-    castleGroup.add(mainBuilding);
-
-    // Get the bounding box of the castle to use for the stand
-    const sphere = new THREE.Sphere().setFromPoints(towers);
-    // Get radius for box
-    // Add stand for the castle, so that it's bigger than the castle itself
-
-    sphere.radius = sphere.radius + maxRadius;
-    const standGeometry = new THREE.CylinderGeometry(sphere.radius, sphere.radius, 0.1);
-    const standMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
-    const stand = new THREE.Mesh(standGeometry, standMaterial);
-    stand.position.copy(sphere.center);
-    stand.position.y = 0.05; // Adjust so it's on the ground
-    // The size of the stand indicates the size of the castle
-    castleGroup.userData.size = sphere.radius;
+    // Create shield
+    const shieldGeometry = new CylinderGeometry(1.0, 5.0, 3.0, 32);
+    const shieldMaterial = new MeshStandardMaterial({ color: 0x00ff00 });
+    const shield = new Mesh(shieldGeometry, shieldMaterial);
+    shield.position.set(0, 0.0, 0);
+    // shield.rotation.set(Math.PI / 2, 0, 0);
+    castleGroup.add(shield);
+    shieldGeometry.computeBoundingSphere();
+    castleGroup.ud = castleGroup.userData;
+    castleGroup.ud.size = shieldGeometry.boundingSphere?.radius;
     // Initial troops
-    castleGroup.userData.troops = Math.floor(Math.random() * sphere.radius * 10);
+    castleGroup.ud.troops = Math.floor(Math.random() * castleGroup.ud.size * 10);
     // Initial owner
-    castleGroup.userData.owner = null;
-    castleGroup.userData.center = stand.position;
-
-    castleGroup.add(stand);
+    castleGroup.ud.owner = null;
+    // castleGroup.userData.center = stand.position;
+    // castleGroup.add(stand);
     castleGroup.scale.set(0.1, 0.1, 0.1);
     return castleGroup;
   }
@@ -795,20 +640,23 @@ const init = async () => {
       await xrManager.startSession();
       initControllers();
     }
-    // Logic to start the game or transition to the main game scene
-    textMesh.visible = false;
 
+    document.getElementById("s")?.remove();
+    gameStarted = true;
     (window as any).scene = scene;
+  }
+  const button = document.getElementById("b");
+  if (button) {
+    button.innerHTML = text;
+    button.addEventListener("click", startGame);
   }
 
   function getCameraConstant(camera: THREE.PerspectiveCamera) {
-    return (
-      window.innerHeight / (Math.tan(THREE.MathUtils.DEG2RAD * 0.5 * camera.fov) / camera.zoom)
-    );
+    return window.innerHeight / (Math.tan(MathUtils.DEG2RAD * 0.5 * camera.fov) / camera.zoom);
   }
 
   function initKnights() {
-    const geometry = new THREE.BufferGeometry();
+    const geometry = new BufferGeometry();
 
     const positions = new Float32Array(PARTICLES * 3);
     let p = 0;
@@ -829,8 +677,8 @@ const init = async () => {
       }
     }
 
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new BufferAttribute(uvs, 2));
 
     knightUniforms = {
       texturePosition: { value: null },
@@ -839,8 +687,8 @@ const init = async () => {
       density: { value: 0.0 },
     };
 
-    // THREE.ShaderMaterial
-    const material = new THREE.ShaderMaterial({
+    // ShaderMaterial
+    const material = new ShaderMaterial({
       uniforms: knightUniforms,
       vertexShader: knightVertex,
       fragmentShader: knightFragment,
@@ -849,27 +697,34 @@ const init = async () => {
 
     material.extensions.drawBuffers = true;
 
-    const particles = new THREE.Points(geometry, material);
+    const particles = new Points(geometry, material);
     particles.matrixAutoUpdate = false;
     particles.updateMatrix();
 
     scene.add(particles);
   }
 
-  function sendFleetFromCastleToCastle(startPlace: THREE.Group, endPlace: THREE.Group) {
+  function sendFleetFromCastleToCastle(startPlace: CustomGroup, endPlace: CustomGroup) {
     // const startIndex = places.indexOf(startPlace);
     const endIndex = places.indexOf(endPlace);
 
-    // const enemyCastleId =
-    //   (Math.floor((Math.random() * places.length) / 2) + WIDTH / 2 + 0.5) / WIDTH + 0.5;
-
     const enemyCastleId = (endIndex + 0.5) / WIDTH + 0.5;
     console.log("enemyCastleId", enemyCastleId);
-    addShipsToTexture(startPlace.userData.troops / 2, startPlace.position, enemyCastleId);
-    startPlace.userData.troops -= startPlace.userData.troops / 2;
+    addShipsToTexture(
+      startPlace.ud.troops / 2,
+      startPlace.position,
+      enemyCastleId,
+      startPlace.ud.owner,
+    );
+    startPlace.ud.troops -= startPlace.ud.troops / 2;
   }
 
-  function addShipsToTexture(numberOfShips: number, source: THREE.Vector3, target: number) {
+  function addShipsToTexture(
+    numberOfShips: number,
+    source: THREE.Vector3,
+    target: number,
+    owner = "player",
+  ) {
     let slotsFound = 0;
 
     const dtPosition = gpuCompute.createTexture();
@@ -911,7 +766,7 @@ const init = async () => {
         posArray[i] = source.x;
         posArray[i + 1] = source.y + Math.random();
         posArray[i + 2] = source.z;
-        posArray[i + 3] = 0.6; // ship type
+        posArray[i + 3] = owner === "player" ? 0.6 : 0.601; // ship type
         slotsFound++;
 
         // If we've added N slots, break
@@ -921,8 +776,8 @@ const init = async () => {
       }
     }
 
-    console.log(dtPosition.image.data);
-    console.log(dtVelocity.image.data);
+    // console.log(dtPosition.image.data);
+    // console.log(dtVelocity.image.data);
 
     if (slotsFound < numberOfShips) {
       console.warn(`Only ${slotsFound} slots were found and updated. Requested ${numberOfShips}.`);
@@ -933,6 +788,17 @@ const init = async () => {
     gpuCompute.renderTexture(dtVelocity, velocityVariable.renderTargets[0]);
     gpuCompute.renderTexture(dtVelocity, velocityVariable.renderTargets[1]);
   }
+
+  // Simple AI sends random ships to random castles every 5 seconds
+  setInterval(() => {
+    // Random enemy owned castle
+    const enemyCastles = places.filter((place) => place.ud.owner && place.ud.owner !== "player");
+    const startPlace = enemyCastles[Math.floor(Math.random() * enemyCastles.length)] as CustomGroup;
+    const endPlace = places[Math.floor(Math.random() * places.length)] as CustomGroup;
+    if (startPlace && endPlace && startPlace !== endPlace) {
+      sendFleetFromCastleToCastle(startPlace, endPlace);
+    }
+  }, 5000);
 };
 
 init();

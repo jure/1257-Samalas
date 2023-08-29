@@ -15,6 +15,7 @@ const {
   WebGLRenderTarget,
   Texture,
 } = THREE;
+const T = THREE;
 /**
  * GPUComputationRenderer, based on SimulationRenderer by zz85
  *
@@ -69,7 +70,7 @@ export class GPUComputationRenderer {
    *
    * The render targets of the variables can be used as input textures for your visualization shaders.
    *
-   * Variable names should be valid identifiers and should not collide with THREE GLSL used identifiers.
+   * Variable names should be valid identifiers and should not collide with T GLSL used identifiers.
    * a common approach could be to use 'texture' prefixing the variable name; i.e texturePosition, textureVelocity...
    *
    * The size of the computation (sizeX * sizeY) is defined as 'resolution' automatically in the shader. For example:

@@ -15,8 +15,8 @@ float radiusFromMass( float mass ) {
   return pow( ( 3.0 / ( 4.0 * PI ) ) * mass / density, 1.0 / 3.0 );
 }
 
-bool compareFloats(float a, float b) {
-  return abs(a - b) < 0.01;
+bool compareFloats(float a, float b, float epsilon) {
+  return abs(a - b) < epsilon;
 }
 
 void main() {
@@ -27,10 +27,12 @@ void main() {
   vec3 vel = velTemp.xyz;
   float mass = velTemp.w;
 
-  if(compareFloats(posTemp.w,0.6)) {
-    vColor = vec4( 1.0, .647, 0., 1.0 );
+  if(compareFloats(posTemp.w, 0.600, 0.0001)) {
+    vColor = vec4( 0.0, 1.0, 0.0, 1.0 );
+  } else if (compareFloats(posTemp.w,0.601, 0.0001)) {
+    vColor = vec4( 1.0, 0.0, 0.0, 1.0 );
   } else {
-    vColor = vec4( 1.0, 1.0, 1.0, 0.0 );
+    vColor = vec4( 1.0, 1.0, 0.0, 0.0 );
   }
 
   vec4 mvPosition = modelViewMatrix * vec4( pos, 1.0 );
@@ -38,7 +40,7 @@ void main() {
   // Calculate radius of a sphere from mass and density
   //float radius = pow( ( 3.0 / ( 4.0 * PI ) ) * mass / density, 1.0 / 3.0 );
   float radius = radiusFromMass( mass );
-  if ( compareFloats(posTemp.w, .6) ) {
+  if ( compareFloats(posTemp.w, .6, 0.1) ) {
     radius = 0.04;
   }
   // Apparent size in pixels

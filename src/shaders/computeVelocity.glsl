@@ -1,7 +1,4 @@
   @nomangle resolution texturePosition textureVelocity
-  // For PI declaration:
-  #define PI 3.1415926535897932384626433832795
-
   #define delta ( 1.0 / 60.0 )
 
   float gravityConstant = 100.;
@@ -10,10 +7,6 @@
   const float width = resolution.x;
   const float height = resolution.y;
 
-  float radiusFromMass( float mass ) {
-    // Calculate radius of a sphere from mass and density
-    return pow( ( 3.0 / ( 4.0 * PI ) ) * mass / density, 1.0 / 3.0 );
-  }
   bool compareFloats(float a, float b) {
     return abs(a - b) < 0.01; // lenient comparison
   }
@@ -32,9 +25,6 @@
     float mass = tmpVel.w; // also target
 
     if ( mass > 0.0 ) {
-
-      float radius = radiusFromMass( mass );
-
       vec3 acceleration = vec3( 0.0 );
 
       // Gravity interaction
@@ -65,7 +55,6 @@
 
           vec3 dPos = pos2 - pos;
           float distance = length( dPos );
-          float radius2 = radiusFromMass( mass2 );
 
           if ( distance == 0.0 ) {
             continue;
@@ -74,7 +63,7 @@
           // Checks collision
           float theirType = pos2Temp.w;
           // 0.6 is our ship
-          // 0.7 is the enemy ship?
+          // 0.601 is the enemy ship?
 
           float distanceSq = distance * distance;
 
@@ -82,8 +71,6 @@
           // 0.6 type is ships, in that case mass is target id
           if ( distance < .5 && compareFloats(ourType, 0.6) && compareFloats(idParticle2, mass)) {
             // This particle dies
-            // mass = 0.0;
-            radius = 0.0;
             vel = vec3(0); 
             gl_FragColor = vec4( vel, -mass ); // negative mass is a dead target indicator
             return;
@@ -110,16 +97,12 @@
             acceleration += repulsionField * normalize( dPos );
           }
         }
-
-        // if ( mass == 0.0 ) {
-        //   break;
-        // }
       }
 
       // Dynamics
       vel += delta * acceleration;
       if(length(vel) > 0.) {
-        vel = normalize( vel ) * min( length( vel ), 1.0 );
+        vel = normalize( vel ) * min( length( vel ), 1.5 );
       }
     }
 

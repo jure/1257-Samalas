@@ -3,6 +3,7 @@ const path = require("path");
 const webpack = require("webpack");
 const resolve = require("resolve");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const HtmlMinimizerPlugin = require("html-minimizer-webpack-plugin");
 const CaseSensitivePathsPlugin = require("case-sensitive-paths-webpack-plugin");
 const InlineChunkHtmlPlugin = require("react-dev-utils/InlineChunkHtmlPlugin");
 const TerserPlugin = require("terser-webpack-plugin");
@@ -17,12 +18,14 @@ const paths = require("./paths");
 const modules = require("./modules");
 const getClientEnvironment = require("./env");
 const ModuleNotFoundPlugin = require("react-dev-utils/ModuleNotFoundPlugin");
+const BundleAnalyzerPlugin = require("webpack-bundle-analyzer").BundleAnalyzerPlugin;
 const ForkTsCheckerWebpackPlugin =
   process.env.TSC_COMPILE_ON_ERROR === "true"
     ? require("react-dev-utils/ForkTsCheckerWarningWebpackPlugin")
     : require("react-dev-utils/ForkTsCheckerWebpackPlugin");
 
 const createEnvironmentHash = require("./webpack/persistentCache/createEnvironmentHash");
+const HtmlInlineScriptPlugin = require("html-inline-script-webpack-plugin");
 
 // Source maps are resource heavy and can cause out of memory issue for large source files.
 const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== "false";
@@ -251,7 +254,10 @@ module.exports = function (webpackEnv) {
               inline: 2,
             },
             mangle: {
-              safari10: true,
+              properties: {
+                regex: /^_/,
+              },
+              // safari10: true,
             },
             // Added for profiling in devtools
             keep_classnames: isEnvProductionProfile,
@@ -265,6 +271,7 @@ module.exports = function (webpackEnv) {
             },
           },
         }),
+        new HtmlMinimizerPlugin({ minimizerOptions: { minifyJS: false } }),
         // This is only used in production mode
         new CssMinimizerPlugin(),
       ],
@@ -483,7 +490,7 @@ module.exports = function (webpackEnv) {
         Object.assign(
           {},
           {
-            inject: true,
+            inject: "body",
             template: paths.appHtml,
           },
           isEnvProduction
@@ -496,7 +503,7 @@ module.exports = function (webpackEnv) {
                   removeEmptyAttributes: true,
                   removeStyleLinkTypeAttributes: true,
                   keepClosingSlash: true,
-                  minifyJS: true,
+                  // minifyJS: true,
                   minifyCSS: true,
                   minifyURLs: true,
                 },
@@ -504,6 +511,7 @@ module.exports = function (webpackEnv) {
             : undefined,
         ),
       ),
+      // new HtmlInlineScriptPlugin(),
       // Inlines the webpack runtime script. This script is too small to warrant
       // a network request.
       // https://github.com/facebook/create-react-app/issues/5358
@@ -623,9 +631,10 @@ module.exports = function (webpackEnv) {
             },
           },
         }),
+      new BundleAnalyzerPlugin({ openAnalyzer: false, analyzerMode: "static" }),
     ].filter(Boolean),
     // Turn off performance processing because we utilize
     // our own hints via the FileSizeReporter
-    performance: false,
+    // performance: true,
   };
 };

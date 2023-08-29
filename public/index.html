@@ -10,10 +10,49 @@
     <style>
       body { margin: 0; }
       canvas { display: block; }
+      #s {
+        position: absolute;
+        /* center align */
+        top: 25%;
+        left: 25%; 
+        width: 50%;
+        height: 50%;
+        font-family: Courier, monospace;
+        font-size: 1.5em;
+        color: #fff;
+        background: rgba(0,0,0,0.2);
+        border-radius: 10px;
+        padding: 1em;
+        box-sizing: border-box;
+        overflow: auto;
+      }
+      #b {
+        display: block;
+        margin: 0 auto;
+        font-size: 1em;
+        padding: 1em 2em;
+        /* margin-top: 3em; */
+        border-radius: 5px;
+        border: 1px solid #fff;
+        background: rgba(0,0,0,0.5);
+        color: #fff;
+        cursor: pointer;
+      }
+      h1 { 
+        margin-top: 0em;
+      }
     </style>
   </head>
 
   <body>
+    <div id="s">
+      <h1>1257 Samalas</h1>
+      <p>The eruption of Lombok's volcano in 1257 unleashed more than just ash; it awoke an ancient AI, Abyssus, buried deep within.</p>
+      <p>As the AI's consciousness spread, so did the effects of the eruption, causing an ice age that lasted over 700 years.</p>
+      <p>You have been sent back in time to set things right.</p>
+      <p>Use the power of the sacred Banyan trees and restore balance to the timeline.</p>
+      <button id="b">Begin</button>
+    </div>
     <canvas id="c"></canvas>
   </body>
 </html>
