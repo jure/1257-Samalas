@@ -1,4 +1,3 @@
-import "./zzfx";
 import XRmanager from "./XRmanager";
 import TextMaker from "./TextMaker";
 import { GPUComputationRenderer } from "./GPUComputationRenderer";
@@ -31,6 +30,7 @@ let aggregateVariable: any;
 let textMaker: TextMaker;
 let isDragging = false;
 let gameStarted = false;
+let drawCallPanel: Stats.Panel;
 
 const {
   Texture,
@@ -157,10 +157,11 @@ const init = async () => {
   scene.background = new Color(0x505050);
 
   // Create a camera
-  const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+  const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 200);
   camera.position.set(0, 1.6, 3);
 
   const stats = new Stats();
+  drawCallPanel = stats.addPanel(new Stats.Panel("DRAWCALL", "#0ff", "#002"));
   document.body.appendChild(stats.dom);
 
   // Gradient background for an icosahedron
@@ -178,9 +179,9 @@ const init = async () => {
   // scene.add(helper);
 
   // Create a light
-  const light = new PointLight(0xffffff, 10, 100);
-  light.position.set(0, 10, 0);
-  scene.add(light);
+  // const light = new PointLight(0xffffff, 10, 100);
+  // light.position.set(0, 10, 0);
+  // scene.add(light);
   const directionalLight = new DirectionalLight(0xffffff, 0.1);
   directionalLight.position.set(0, 1, 1);
   scene.add(directionalLight);
@@ -223,13 +224,14 @@ const init = async () => {
   const createPositionalAudioPool = (listener: THREE.AudioListener) => {
     const audio = new PositionalAudio(listener);
     audio.setRefDistance(20);
+    audio.setVolume(0.5);
     scene.add(audio);
     return audio;
   };
   // 8 positional audio sources, to be reused
   const positionalPool = {
-    player: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
-    enemy: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
+    player: [1, 2].map(() => createPositionalAudioPool(listener)),
+    enemy: [1, 2].map(() => createPositionalAudioPool(listener)),
   };
 
   // Logic to create random places
@@ -247,6 +249,13 @@ const init = async () => {
 
   const goldenRatio = (1 + Math.sqrt(5)) / 2;
   const maxPolarAngle = Math.PI / 2; // Half-circle for hemisphere
+
+  // Create instanced cylinders with a shadermaterial
+  const cylinderGeometry = new CylinderGeometry(0.1, 0.1, 1, 8);
+  const cylinderMaterial = new MeshStandardMaterial({
+    color: 0x00ff00,
+  });
+  const cylinderMesh = new THREE.InstancedMesh(cylinderGeometry, cylinderMaterial, sphereCount);
 
   for (let i = 0; i < sphereCount; i++) {
     // Distribute polar angles relatively evenly by splitting max angle into even segments
@@ -287,7 +296,7 @@ const init = async () => {
     placeSphere.visible = false;
     scene.add(placeSphere);
 
-    console.log(places.length);
+    // console.log(places.length);
   }
 
   initComputeRenderer();
@@ -531,6 +540,8 @@ const init = async () => {
       updateTroops();
     }
     renderer.render(scene, camera);
+    drawCallPanel.update(renderer.info.render.calls, 200);
+
     stats.update();
   }
   renderer.setAnimationLoop(render);
@@ -612,11 +623,15 @@ const init = async () => {
     handleClickOrTriggerEnd(intersects);
   }
 
+  // function createAIHome() {}
+
+  // function createPlayerHome() {}
+
   function createPlace() {
     const castleGroup = new CustomGroup();
 
     // Create shield
-    const shieldGeometry = new CylinderGeometry(1.0, 5.0, 3.0, 32);
+    const shieldGeometry = new CylinderGeometry(5.0, 5.0, 3.0, 32);
     const shieldMaterial = new MeshStandardMaterial({ color: 0x00ff00 });
     const shield = new Mesh(shieldGeometry, shieldMaterial);
     shield.position.set(0, 0.0, 0);
@@ -638,6 +653,8 @@ const init = async () => {
   async function startGame() {
     if (xrSupport) {
       await xrManager.startSession();
+      const ref = renderer.xr.getReferenceSpace();
+
       initControllers();
     }
 
@@ -651,11 +668,79 @@ const init = async () => {
     button.addEventListener("click", startGame);
   }
 
-  function getCameraConstant(camera: THREE.PerspectiveCamera) {
-    return window.innerHeight / (Math.tan(MathUtils.DEG2RAD * 0.5 * camera.fov) / camera.zoom);
+  function getCameraConstant(camera: THREE.PerspectiveCamera, fov?: number) {
+    const f = fov || camera.fov;
+    return window.innerHeight / (Math.tan(MathUtils.DEG2RAD * 0.5 * f) / camera.zoom);
   }
 
   function initKnights() {
+    // const baseGeometry = new THREE.PlaneGeometry(0.1, 0.1);
+    const baseGeometry = new THREE.BoxGeometry(0.05, 0.05, 0.2);
+    const instancedGeometry = new THREE.InstancedBufferGeometry();
+    instancedGeometry.index = baseGeometry.index;
+    instancedGeometry.attributes.position = baseGeometry.attributes.position;
+    instancedGeometry.attributes.uv = baseGeometry.attributes.uv;
+    instancedGeometry.instanceCount = PARTICLES;
+    const uvs = new Float32Array(PARTICLES * 2);
+    let p = 0;
+
+    for (let j = 0; j < WIDTH; j++) {
+      for (let i = 0; i < WIDTH; i++) {
+        uvs[p++] = i / (WIDTH - 1);
+        uvs[p++] = j / (WIDTH - 1);
+      }
+    }
+    instancedGeometry.setAttribute("dtUv", new THREE.InstancedBufferAttribute(uvs, 2));
+
+    knightUniforms = {
+      texturePosition: { value: null },
+      textureVelocity: { value: null },
+    };
+
+    const material = new ShaderMaterial({
+      uniforms: knightUniforms,
+      vertexShader: knightVertex,
+      fragmentShader: knightFragment,
+      // transparent: true,
+      side: THREE.DoubleSide,
+    });
+    const depthMaterial = new THREE.ShaderMaterial();
+    // depthMaterial.depthPacking = THREE.RGBADepthPacking;
+    depthMaterial.name = "WTF";
+    depthMaterial.onBeforeCompile = (shader: THREE.ShaderMaterial) => {
+      shader.uniforms.texturePosition = knightUniforms.texturePosition;
+      shader.uniforms.textureVelocity = knightUniforms.textureVelocity;
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <common>",
+        `#include <common>
+        uniform sampler2D texturePosition;
+        uniform sampler2D textureVelocity;
+        attribute vec2 dtUv;
+        `,
+      );
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+        vec4 posDt = texture2D( texturePosition, dtUv );
+        transformed += posDt.xyz;`,
+      );
+    };
+    const mesh = new THREE.InstancedMesh(instancedGeometry, material, PARTICLES);
+    mesh.customDepthMaterial = depthMaterial;
+    // console.log("depthMaterial", depthMaterial);
+    // mesh.material = depthMaterial;
+    // depthMaterial.needsUpdate = true;
+    // mesh.material.needsUpdate = true;
+    mesh.frustumCulled = false;
+    // // scene.overrideMaterial = depthMaterial;
+    // const dummyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1));
+    // dummyMesh.material = depthMaterial;
+    // scene.add(dummyMesh);
+    scene.add(mesh);
+    depthMaterial.needsUpdate = true;
+  }
+
+  function initKnights2() {
     const geometry = new BufferGeometry();
 
     const positions = new Float32Array(PARTICLES * 3);
@@ -693,12 +778,14 @@ const init = async () => {
       vertexShader: knightVertex,
       fragmentShader: knightFragment,
       transparent: true,
+      side: THREE.DoubleSide,
     });
 
     material.extensions.drawBuffers = true;
 
     const particles = new Points(geometry, material);
-    particles.matrixAutoUpdate = false;
+    particles.frustumCulled = false;
+    // particles.matrixAutoUpdate = false;
     particles.updateMatrix();
 
     scene.add(particles);
@@ -755,8 +842,13 @@ const init = async () => {
     // Log the data in dtPosition.image.data as a 64x64 {x,y,z} array
     const posArray = dtPosition.image.data;
     const velArray = dtVelocity.image.data;
+    let nearZeroCount = 0;
     for (let i = 0; i < posArray.length; i += 4) {
       // Check if the slot is empty
+      const abs = Math.abs(velArray[i + 3]);
+      if (abs < 0.01 && abs > 0) {
+        nearZeroCount++;
+      }
       if (velArray[i + 3] === 0) {
         // Update the slot
         velArray[i] = 0.0;
@@ -775,7 +867,7 @@ const init = async () => {
         }
       }
     }
-
+    // console.log("NZC", nearZeroCount);
     // console.log(dtPosition.image.data);
     // console.log(dtVelocity.image.data);
 

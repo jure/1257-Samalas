@@ -66,7 +66,7 @@ export default class TextMaker {
       fragmentShader,
     });
 
-    textShaderMaterial.transparent = true;
+    // textShaderMaterial.transparent = true;
     textShaderMaterial.side = THREE.DoubleSide;
     textShaderMaterial.vertexColors = true;
 
