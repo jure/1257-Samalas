@@ -1,5 +1,6 @@
 varying vec4 vColor;
 varying vec4 vPosition;
+varying vec4 vVelocity;
 void main() {
 
   // if ( vColor.y == 0.0 ) discard;
@@ -10,8 +11,9 @@ void main() {
     // discard;
   // }
   float depth = vPosition.z / 10.0;
-  // discard if depth is greater than 1.0
 
-  // gl_FragColor = vec4(depth, depth, depth, 1.0);
-  gl_FragColor = vColor;
+  // Mix depth, velocity and color
+  // gl_FragColor = vec4( vColor.xyz, 1.0 ) * depth * vVelocity;
+  gl_FragColor = vec4( vColor.xyz * 0.5 + 0.5 * abs(vVelocity.xyz) * (1.0-depth), 1.0);
+
 }

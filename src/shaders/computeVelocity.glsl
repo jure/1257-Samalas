@@ -65,7 +65,7 @@
           // 0.6 is our ship
           // 0.601 is the enemy ship?
 
-          float distanceSq = distance * distance;
+          float distanceSq = max(distance * distance, 0.0001);
 
           // Collide with target, the only way to kill a particle
           // 0.6 type is ships, in that case mass is target id

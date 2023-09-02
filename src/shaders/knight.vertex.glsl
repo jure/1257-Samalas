@@ -10,6 +10,7 @@ attribute vec2 dtUv;
 
 varying vec4 vColor;
 varying vec4 vPosition;
+varying vec4 vVelocity;
 // float radiusFromMass( float mass ) {
 //   // Calculate radius of a sphere from mass and density
 //   return pow( ( 3.0 / ( 4.0 * PI ) ) * mass / density, 1.0 / 3.0 );
@@ -42,10 +43,8 @@ void main() {
     vColor = vec4( 1.0, 1.0, 0.0, 0.0 );
   }
   
-  vColor = velTemp;
+  vVelocity = velTemp;
   vec3 newPos = mat3(modelMatrix) * position;
-
-
 
     // Assuming `vel` is your velocity or direction vector and is normalized
     mat3 orientation = lookAt(normalize(vel));

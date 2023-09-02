@@ -58,15 +58,13 @@ export default class TextMaker {
       uniforms: {
         t: { value: this._texture },
         m: { value: this._messagesTexture },
+        time: { value: 0 },
       },
       vertexShader,
-      // t = textTexture, m = messageTexture, l = length, c = color, u = uv, i = instance, vUv = uv
-      // cp = charPos, ci = charIndex, cu = charUV, csu = charSizeUV, sx = scaleX, sy = scaleY
-      // cc = charColor
       fragmentShader,
     });
 
-    // textShaderMaterial.transparent = true;
+    textShaderMaterial.transparent = true;
     textShaderMaterial.side = THREE.DoubleSide;
     textShaderMaterial.vertexColors = true;
 
@@ -82,22 +80,23 @@ export default class TextMaker {
   }
 
   generateTexture() {
-    const canvasSize = 512; // You can adjust this for better resolution.
+    const canvasSize = 1024; // You can adjust this for better resolution.
     const canvas = document.createElement("canvas");
+    // document.body.appendChild(canvas);
     canvas.width = canvasSize;
     canvas.height = canvasSize;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error();
 
-    const size = 64;
+    const size = { x: 90, y: 128 };
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.font = `${size}px monospace`; // Adjust font size to fit within the canvas.
+    ctx.font = `${size.y}px monospace`; // Adjust font size to fit within the canvas.
     ctx.fillStyle = "white";
 
     for (let i = 0; i < this._characters.length; i++) {
-      const x = size * (i % 8) + size / 2;
-      const y = size * Math.floor(i / 8) + size;
+      const x = size.x * (i % 8) + size.x / 2;
+      const y = size.y * Math.floor(i / 8) + size.y;
       ctx.fillText(this._characters[i], x, y);
     }
 
@@ -118,9 +117,12 @@ export default class TextMaker {
     this._lengthsBuffer.needsUpdate = true;
     // Update scales
     const s = this._scales[instanceId] || 1;
-    this.setScale(instanceId, (message.length * s) / 10.0, 1 * s, 1 * s);
+    this.setScale(instanceId, (message.length * s) / 10 / (128 / 90), 1 * s, 1 * s);
     // Mark the texture for update on the next render
     this._messagesTexture.needsUpdate = true;
+    (this.instancedMesh.material as THREE.ShaderMaterial).uniforms.time.value =
+      performance.now() / 1000.0;
+    (this.instancedMesh.material as THREE.ShaderMaterial).needsUpdate = true;
   }
 
   addText(message: string, color?: THREE.Color): null | TextInstance {
@@ -145,6 +147,7 @@ export default class TextMaker {
         this.setPosition(instanceId, x, y, z);
       },
       updateText: (message: string, color?: THREE.Color) => {
+        // this.updateMessageTexture(instanceId, "88888888AAAAWWW..");
         this.updateMessageTexture(instanceId, message);
         color && this.setColor(instanceId, color);
       },

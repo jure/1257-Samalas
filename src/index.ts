@@ -8,7 +8,7 @@ import knightVertex from "./shaders/knight.vertex.glsl";
 import knightFragment from "./shaders/knight.fragment.glsl";
 import { OrbitControls } from "./OrbitControls";
 import { playRandomSoundAtPosition } from "./sounds";
-
+// import { LineMaterial, LineGeometry } from "./line";
 import Stats from "three/addons/libs/stats.module.js";
 const intersectedPlace: CustomGroup | null = null; // The sphere currently being pointed at
 let startPlace: CustomGroup | null = null; // The first sphere selected when drawing a line
@@ -31,7 +31,10 @@ let textMaker: TextMaker;
 let isDragging = false;
 let gameStarted = false;
 let drawCallPanel: Stats.Panel;
-
+const shipsFound = {
+  player: 0,
+  enemy: 0,
+};
 const {
   Texture,
   Scene,
@@ -179,10 +182,10 @@ const init = async () => {
   // scene.add(helper);
 
   // Create a light
-  // const light = new PointLight(0xffffff, 10, 100);
-  // light.position.set(0, 10, 0);
-  // scene.add(light);
-  const directionalLight = new DirectionalLight(0xffffff, 0.1);
+  const light = new PointLight(0xffffff, 100, 100);
+  light.position.set(0, 0, 0);
+  scene.add(light);
+  const directionalLight = new DirectionalLight(0xffffff, 1.1);
   directionalLight.position.set(0, 1, 1);
   scene.add(directionalLight);
 
@@ -210,12 +213,44 @@ const init = async () => {
     camera.aspect = width / height;
   });
 
+  function stretchLineBetweenPoints(line: THREE.Mesh, start: THREE.Vector3, end: THREE.Vector3) {
+    const direction = new THREE.Vector3().subVectors(end, start);
+    const length = direction.length();
+    const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+    // Reset the cube's state to the default
+    line.position.set(0, 0, 0);
+    line.rotation.set(0, 0, 0);
+    line.scale.set(1, 1, 1);
+    // Use a matrix to define the orientation and apply it
+    const orientation = new THREE.Matrix4();
+    orientation.lookAt(start, end, new THREE.Vector3(0, 1, 0));
+    // Rotate 90 degrees around X-axis to align the cube's top face with the forward direction
+    const alignmentRotation = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    orientation.multiply(alignmentRotation);
+    line.applyMatrix4(orientation);
+
+    // Apply the scaling to the Y dimension
+    line.scale.setY(length);
+
+    // After scaling, we then set the position.
+    // This order ensures the cube isn't prematurely moved before the scaling is done.
+    line.position.copy(midpoint);
+    line.visible = true;
+  }
+
   // Create the indicator line
-  // Start drawing the line from this sphere
-  const lineMaterial = new LineBasicMaterial({ color: 0x00ff00 });
-  const lineGeometry = new BufferGeometry().setFromPoints([new Vector3(), new Vector3()]);
-  line = new Line(lineGeometry, lineMaterial);
+  // Use a cube for now
+  const lineGeometry = new BoxGeometry(0.1, 1.0, 0.1);
+  const lineMaterial = new MeshBasicMaterial({ color: 0x00ff00 });
+  const line = new Mesh(lineGeometry, lineMaterial);
+  line.visible = false;
   scene.add(line);
+
+  // const lineMaterial = new LineMaterial({ color: 0xffffff });
+  // const lineGeometry = new LineGeometry().setPositions([0, 1, 2, 4, 2, 1]);
+  // line = new Line(lineGeometry, lineMaterial);
+  // scene.add(line);
 
   // Positional audio
   const listener = new AudioListener();
@@ -348,7 +383,7 @@ const init = async () => {
       }
       if (startPlace && place !== startPlace) {
         setColorForAllChildren(place, new Color(0xff0000));
-        line.geometry.setFromPoints([startPlace.position, place.position]);
+        stretchLineBetweenPoints(line, startPlace.position, place.position);
       }
       if (endPlace !== place) {
         if (endPlace) {
@@ -358,7 +393,7 @@ const init = async () => {
       }
     } else {
       // hide the line
-      line.geometry.setFromPoints([new Vector3(), new Vector3()]);
+      line.visible = false;
       if (endPlace) {
         setColorForAllChildren(endPlace, endPlace.ud.color);
       }
@@ -368,11 +403,13 @@ const init = async () => {
 
   function handleClickOrTriggerStart(intersects: THREE.Intersection[], event?: MouseEvent) {
     if (intersects.length > 0) {
-      controls.enabled = false;
       event?.preventDefault();
       const place = places[placeSpheres.indexOf(intersects[0].object)];
-      startPlace = place as CustomGroup;
-      isDragging = true;
+      if (place.ud.owner === "player") {
+        controls.enabled = false;
+        startPlace = place as CustomGroup;
+        isDragging = true;
+      }
     } else {
       console.log("no start intersect");
     }
@@ -383,7 +420,7 @@ const init = async () => {
       endPlace = places[placeSpheres.indexOf(intersects[0].object)] as CustomGroup;
       if (startPlace && endPlace !== startPlace) {
         console.log("startPlace attacks:", startPlace, "endPlace", endPlace);
-        sendFleetFromCastleToCastle(startPlace, endPlace);
+        sendFleetFromPlaceToPlace(startPlace, endPlace);
       }
     }
     controls.enabled = true;
@@ -397,7 +434,7 @@ const init = async () => {
     startPlace = null;
     endPlace = null;
     isDragging = false;
-    line.geometry.setFromPoints([new Vector3(), new Vector3()]);
+    line.visible = false;
   }
 
   function setColorForAllChildren(object: THREE.Group, color: THREE.Color) {
@@ -437,7 +474,12 @@ const init = async () => {
 
   function generateTroops(castle: CustomGroup, timeDelta: number) {
     const sizeFactor = castle.ud.size; // Simple size measure
-    castle.ud.troops += sizeFactor * timeDelta * 0.001;
+    // TODO temp player adv
+    if (castle.ud.owner === "player") {
+      castle.ud.troops += sizeFactor * timeDelta * 0.01;
+    } else if (castle.ud.owner === "enemy") {
+      castle.ud.troops += sizeFactor * timeDelta * 0.01;
+    }
     updateCastleTroopsDisplay(castle, Math.floor(castle.ud.troops));
   }
 
@@ -453,7 +495,7 @@ const init = async () => {
     lastGenerationTime = now;
   }
 
-  function checkForShipArrivals() {
+  function checkForParticleArrivals() {
     const target = gpuCompute.getCurrentRenderTarget(aggregateVariable);
     const size = target.width * target.height;
     const dataAgg = new Float32Array(size * 4); // Assuming RGBA format
@@ -466,6 +508,8 @@ const init = async () => {
       aggregateRenderTarget.height,
       dataAgg,
     );
+    shipsFound.enemy = 0;
+    shipsFound.player = 0;
     const toReset = []; // ship pixels needing reset
     for (let i = 0; i < dataAgg.length; i += 4) {
       // Check if the ship has collided
@@ -495,7 +539,32 @@ const init = async () => {
         }
 
         toReset.push(i);
+      } else if (dataAgg[i + 3] > 0) {
+        if (dataAgg[i + 1] < 0.6005 && dataAgg[i + 1] > 0.5995) {
+          shipsFound.player++;
+        } else if (dataAgg[i + 1] > 0.6005 && dataAgg[i + 1] < 0.6015) {
+          shipsFound.enemy++;
+        }
       }
+    }
+
+    // Check if the game is over
+    const planetOwners = places.map((place) => place.ud.owner);
+    const playerWon =
+      planetOwners.every((owner) => [null, "player"].includes(owner)) && shipsFound.enemy === 0;
+    const enemyWon =
+      planetOwners.every((owner) => [null, "enemy"].includes(owner)) && shipsFound.player === 0;
+    if (playerWon) {
+      console.log("Player won");
+      const text = createTextSprite("You win!");
+      // Position 2 units in front of the camera
+      text?.setPosition(camera.position.x, camera.position.y, camera.position.z - 2);
+      gameStarted = false;
+    } else if (enemyWon) {
+      const text = createTextSprite("Game over!");
+      console.log("Enemy won");
+      text?.setPosition(camera.position.x, camera.position.y, camera.position.z - 2);
+      gameStarted = false;
     }
 
     // Reset the velocity texture
@@ -536,7 +605,7 @@ const init = async () => {
       knightUniforms["textureVelocity"].value = textureVelocity;
 
       updatePointing();
-      checkForShipArrivals();
+      checkForParticleArrivals();
       updateTroops();
     }
     renderer.render(scene, camera);
@@ -630,8 +699,8 @@ const init = async () => {
   function createPlace() {
     const castleGroup = new CustomGroup();
 
-    // Create shield
-    const shieldGeometry = new CylinderGeometry(5.0, 5.0, 3.0, 32);
+    // Create shield with random sizes
+    const shieldGeometry = new CylinderGeometry(Math.random() * 7.0, Math.random() * 7.0, 1.0, 32);
     const shieldMaterial = new MeshStandardMaterial({ color: 0x00ff00 });
     const shield = new Mesh(shieldGeometry, shieldMaterial);
     shield.position.set(0, 0.0, 0);
@@ -644,8 +713,6 @@ const init = async () => {
     castleGroup.ud.troops = Math.floor(Math.random() * castleGroup.ud.size * 10);
     // Initial owner
     castleGroup.ud.owner = null;
-    // castleGroup.userData.center = stand.position;
-    // castleGroup.add(stand);
     castleGroup.scale.set(0.1, 0.1, 0.1);
     return castleGroup;
   }
@@ -675,11 +742,17 @@ const init = async () => {
 
   function initKnights() {
     // const baseGeometry = new THREE.PlaneGeometry(0.1, 0.1);
-    const baseGeometry = new THREE.BoxGeometry(0.05, 0.05, 0.2);
+    // const baseGeometry = new THREE.BoxGeometry(0.05, 0.05, 0.2);
+    // const baseGeometry = new THREE.TetrahedronGeometry(0.1);
+    const baseGeometry = new THREE.CylinderGeometry(0.2, 0, 0.9, 4, 1);
+    baseGeometry.scale(0.3, 0.3, 0.3);
+    baseGeometry.rotateX(-Math.PI / 2);
+    // baseGeometry.scale(1, 1, 5);
     const instancedGeometry = new THREE.InstancedBufferGeometry();
     instancedGeometry.index = baseGeometry.index;
     instancedGeometry.attributes.position = baseGeometry.attributes.position;
     instancedGeometry.attributes.uv = baseGeometry.attributes.uv;
+
     instancedGeometry.instanceCount = PARTICLES;
     const uvs = new Float32Array(PARTICLES * 2);
     let p = 0;
@@ -690,8 +763,8 @@ const init = async () => {
         uvs[p++] = j / (WIDTH - 1);
       }
     }
-    instancedGeometry.setAttribute("dtUv", new THREE.InstancedBufferAttribute(uvs, 2));
 
+    instancedGeometry.setAttribute("dtUv", new THREE.InstancedBufferAttribute(uvs, 2));
     knightUniforms = {
       texturePosition: { value: null },
       textureVelocity: { value: null },
@@ -704,94 +777,12 @@ const init = async () => {
       // transparent: true,
       side: THREE.DoubleSide,
     });
-    const depthMaterial = new THREE.ShaderMaterial();
-    // depthMaterial.depthPacking = THREE.RGBADepthPacking;
-    depthMaterial.name = "WTF";
-    depthMaterial.onBeforeCompile = (shader: THREE.ShaderMaterial) => {
-      shader.uniforms.texturePosition = knightUniforms.texturePosition;
-      shader.uniforms.textureVelocity = knightUniforms.textureVelocity;
-      shader.vertexShader = shader.vertexShader.replace(
-        "#include <common>",
-        `#include <common>
-        uniform sampler2D texturePosition;
-        uniform sampler2D textureVelocity;
-        attribute vec2 dtUv;
-        `,
-      );
-      shader.vertexShader = shader.vertexShader.replace(
-        "#include <begin_vertex>",
-        `#include <begin_vertex>
-        vec4 posDt = texture2D( texturePosition, dtUv );
-        transformed += posDt.xyz;`,
-      );
-    };
     const mesh = new THREE.InstancedMesh(instancedGeometry, material, PARTICLES);
-    mesh.customDepthMaterial = depthMaterial;
-    // console.log("depthMaterial", depthMaterial);
-    // mesh.material = depthMaterial;
-    // depthMaterial.needsUpdate = true;
-    // mesh.material.needsUpdate = true;
     mesh.frustumCulled = false;
-    // // scene.overrideMaterial = depthMaterial;
-    // const dummyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1));
-    // dummyMesh.material = depthMaterial;
-    // scene.add(dummyMesh);
     scene.add(mesh);
-    depthMaterial.needsUpdate = true;
   }
 
-  function initKnights2() {
-    const geometry = new BufferGeometry();
-
-    const positions = new Float32Array(PARTICLES * 3);
-    let p = 0;
-
-    for (let i = 0; i < PARTICLES; i++) {
-      positions[p++] = 0;
-      positions[p++] = 0;
-      positions[p++] = 0;
-    }
-
-    const uvs = new Float32Array(PARTICLES * 2);
-    p = 0;
-
-    for (let j = 0; j < WIDTH; j++) {
-      for (let i = 0; i < WIDTH; i++) {
-        uvs[p++] = i / (WIDTH - 1);
-        uvs[p++] = j / (WIDTH - 1);
-      }
-    }
-
-    geometry.setAttribute("position", new BufferAttribute(positions, 3));
-    geometry.setAttribute("uv", new BufferAttribute(uvs, 2));
-
-    knightUniforms = {
-      texturePosition: { value: null },
-      textureVelocity: { value: null },
-      cameraConstant: { value: getCameraConstant(camera) },
-      density: { value: 0.0 },
-    };
-
-    // ShaderMaterial
-    const material = new ShaderMaterial({
-      uniforms: knightUniforms,
-      vertexShader: knightVertex,
-      fragmentShader: knightFragment,
-      transparent: true,
-      side: THREE.DoubleSide,
-    });
-
-    material.extensions.drawBuffers = true;
-
-    const particles = new Points(geometry, material);
-    particles.frustumCulled = false;
-    // particles.matrixAutoUpdate = false;
-    particles.updateMatrix();
-
-    scene.add(particles);
-  }
-
-  function sendFleetFromCastleToCastle(startPlace: CustomGroup, endPlace: CustomGroup) {
+  function sendFleetFromPlaceToPlace(startPlace: CustomGroup, endPlace: CustomGroup) {
     // const startIndex = places.indexOf(startPlace);
     const endIndex = places.indexOf(endPlace);
 
@@ -810,10 +801,9 @@ const init = async () => {
     numberOfShips: number,
     source: THREE.Vector3,
     target: number,
-    owner = "player",
+    owner: "player" | "enemy",
   ) {
     let slotsFound = 0;
-
     const dtPosition = gpuCompute.createTexture();
     const dtVelocity = gpuCompute.createTexture();
 
@@ -842,13 +832,17 @@ const init = async () => {
     // Log the data in dtPosition.image.data as a 64x64 {x,y,z} array
     const posArray = dtPosition.image.data;
     const velArray = dtVelocity.image.data;
-    let nearZeroCount = 0;
+
+    // if (posArray.includes(NaN) || velArray.includes(NaN)) {
+    //   debugger;
+    // }
+
     for (let i = 0; i < posArray.length; i += 4) {
-      // Check if the slot is empty
-      const abs = Math.abs(velArray[i + 3]);
-      if (abs < 0.01 && abs > 0) {
-        nearZeroCount++;
+      // Only allow 1/2 of total ships per player
+      if (shipsFound[owner] >= PARTICLES / 2) {
+        break;
       }
+      // Check if the slot is empty
       if (velArray[i + 3] === 0) {
         // Update the slot
         velArray[i] = 0.0;
@@ -867,11 +861,8 @@ const init = async () => {
         }
       }
     }
-    // console.log("NZC", nearZeroCount);
-    // console.log(dtPosition.image.data);
-    // console.log(dtVelocity.image.data);
 
-    if (slotsFound < numberOfShips) {
+    if (slotsFound < Math.floor(numberOfShips)) {
       console.warn(`Only ${slotsFound} slots were found and updated. Requested ${numberOfShips}.`);
     }
 
@@ -888,7 +879,7 @@ const init = async () => {
     const startPlace = enemyCastles[Math.floor(Math.random() * enemyCastles.length)] as CustomGroup;
     const endPlace = places[Math.floor(Math.random() * places.length)] as CustomGroup;
     if (startPlace && endPlace && startPlace !== endPlace) {
-      sendFleetFromCastleToCastle(startPlace, endPlace);
+      sendFleetFromPlaceToPlace(startPlace, endPlace);
     }
   }, 5000);
 };
