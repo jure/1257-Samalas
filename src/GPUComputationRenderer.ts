@@ -1,6 +1,7 @@
-// Taken straight from https://github.com/mrdoob/three.js/blob/dev/examples/jsm/misc/GPUComputationRenderer.js
+// From https://github.com/mrdoob/three.js/blob/dev/examples/jsm/misc/GPUComputationRenderer.js
+// MIT license (Three.js authors): https://github.com/mrdoob/three.js/blob/dev/LICENSE
 // And TypeScriptified with help from https://github.com/three-types/three-ts-types/blob/master/types/three/examples/jsm/misc/GPUComputationRenderer.d.ts
-
+// Adapted specifically for this project
 const {
   Camera,
   ClampToEdgeWrapping,

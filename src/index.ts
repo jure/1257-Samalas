@@ -8,6 +8,7 @@ import knightVertex from "./shaders/knight.vertex.glsl";
 import knightFragment from "./shaders/knight.fragment.glsl";
 import { OrbitControls } from "./OrbitControls";
 import { playRandomSoundAtPosition } from "./sounds";
+import { startMusic } from "./music";
 // import { LineMaterial, LineGeometry } from "./line";
 import Stats from "three/addons/libs/stats.module.js";
 const intersectedPlace: CustomGroup | null = null; // The sphere currently being pointed at
@@ -204,13 +205,16 @@ const init = async () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
+  // Add orbit controller
+  const controls = new OrbitControls(camera, renderer.domElement);
+
   // Resize the canvas on window resize
   window.addEventListener("resize", function () {
     const width = window.innerWidth;
     const height = window.innerHeight;
     renderer.setSize(width, height);
-    camera.updateProjectionMatrix();
     camera.aspect = width / height;
+    camera.updateProjectionMatrix();
   });
 
   function stretchLineBetweenPoints(line: THREE.Mesh, start: THREE.Vector3, end: THREE.Vector3) {
@@ -265,8 +269,8 @@ const init = async () => {
   };
   // 8 positional audio sources, to be reused
   const positionalPool = {
-    player: [1, 2].map(() => createPositionalAudioPool(listener)),
-    enemy: [1, 2].map(() => createPositionalAudioPool(listener)),
+    player: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
+    enemy: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
   };
 
   // Logic to create random places
@@ -340,8 +344,8 @@ const init = async () => {
   textMaker = new TextMaker();
   scene.add(textMaker.instancedMesh);
 
-  function createTextSprite(message: string) {
-    const text = textMaker.addText(message);
+  function createTextSprite(message: string, followCameraRotation = false, followCamera = false) {
+    const text = textMaker.addText(message, new Color(0xfff), followCameraRotation, followCamera);
     return text;
   }
   const xrSupport = await navigator.xr?.isSessionSupported("immersive-vr");
@@ -463,7 +467,7 @@ const init = async () => {
       );
       castle.ud.troopsDisplay.setScale(Math.min(1 + troopsCount / 100, 2));
     } else {
-      castle.ud.troopsDisplay = createTextSprite(troopsCount.toString());
+      castle.ud.troopsDisplay = createTextSprite(troopsCount.toString(), true);
       castle.ud.troopsDisplay.setPosition(
         castle.position.x,
         castle.position.y + 0.5,
@@ -476,9 +480,9 @@ const init = async () => {
     const sizeFactor = castle.ud.size; // Simple size measure
     // TODO temp player adv
     if (castle.ud.owner === "player") {
-      castle.ud.troops += sizeFactor * timeDelta * 0.01;
+      castle.ud.troops += sizeFactor * timeDelta * 0.001;
     } else if (castle.ud.owner === "enemy") {
-      castle.ud.troops += sizeFactor * timeDelta * 0.01;
+      castle.ud.troops += sizeFactor * timeDelta * 0.001;
     }
     updateCastleTroopsDisplay(castle, Math.floor(castle.ud.troops));
   }
@@ -521,7 +525,6 @@ const init = async () => {
 
         if (place) {
           playRandomSoundAtPosition(shipOwner, place.position, positionalPool);
-
           if (!place.ud.owner || place.ud.owner !== shipOwner) {
             place.ud.troops -= 1;
 
@@ -596,6 +599,7 @@ const init = async () => {
   }
   // Animation loop
   function render() {
+    controls.update();
     if (gameStarted) {
       gpuCompute.compute();
       const texturePosition = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
@@ -658,9 +662,6 @@ const init = async () => {
     handleClickOrTriggerEnd(intersects, event);
   }
 
-  // Add orbit controller
-  const controls = new OrbitControls(camera, renderer.domElement);
-
   function initControllers() {
     // Handle controllers for WebXR
     for (let i = 0; i < 2; i++) {
@@ -718,15 +719,26 @@ const init = async () => {
   }
 
   async function startGame() {
+    createTextSprite("Game started!", false, true);
     if (xrSupport) {
       await xrManager.startSession();
       const ref = renderer.xr.getReferenceSpace();
 
       initControllers();
     }
+    startMusic();
+    // playMusic("player", positionalPool);
 
     document.getElementById("s")?.remove();
     gameStarted = true;
+    // TODO
+    // window.onbeforeunload = (e) => (e.returnValue = "Game in progress");
+    // P pauses the game
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "p") {
+        gameStarted = !gameStarted;
+      }
+    });
     (window as any).scene = scene;
   }
   const button = document.getElementById("b");
@@ -783,26 +795,19 @@ const init = async () => {
   }
 
   function sendFleetFromPlaceToPlace(startPlace: CustomGroup, endPlace: CustomGroup) {
-    // const startIndex = places.indexOf(startPlace);
-    const endIndex = places.indexOf(endPlace);
-
-    const enemyCastleId = (endIndex + 0.5) / WIDTH + 0.5;
-    console.log("enemyCastleId", enemyCastleId);
-    addShipsToTexture(
-      startPlace.ud.troops / 2,
-      startPlace.position,
-      enemyCastleId,
-      startPlace.ud.owner,
-    );
+    addShipsToTexture(startPlace.ud.troops / 2, startPlace.position, endPlace, startPlace.ud.owner);
     startPlace.ud.troops -= startPlace.ud.troops / 2;
   }
 
   function addShipsToTexture(
     numberOfShips: number,
     source: THREE.Vector3,
-    target: number,
+    endPlace: CustomGroup,
     owner: "player" | "enemy",
   ) {
+    const targetId = places.indexOf(endPlace);
+    const dtTarget = (targetId + 0.5) / WIDTH + 0.5;
+
     let slotsFound = 0;
     const dtPosition = gpuCompute.createTexture();
     const dtVelocity = gpuCompute.createTexture();
@@ -848,10 +853,14 @@ const init = async () => {
         velArray[i] = 0.0;
         velArray[i + 1] = 0.0;
         velArray[i + 2] = 0.0;
-        velArray[i + 3] = target; // target castle id
-        posArray[i] = source.x;
-        posArray[i + 1] = source.y + Math.random();
-        posArray[i + 2] = source.z;
+        velArray[i + 3] = dtTarget; // target castle id
+        // Ships should be spread out in the direction of the target
+        const direction = new THREE.Vector3().subVectors(endPlace.position, source);
+        direction.normalize();
+        posArray[i] = source.x + Math.random() * direction.x;
+        posArray[i + 1] = source.y + Math.random() * direction.y;
+        posArray[i + 2] = source.z + Math.random() * direction.z;
+
         posArray[i + 3] = owner === "player" ? 0.6 : 0.601; // ship type
         slotsFound++;
 

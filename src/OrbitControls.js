@@ -1,3 +1,7 @@
+// From https://github.com/mrdoob/three.js/blob/dev/examples/jsm/misc/GPUComputationRenderer.js
+// MIT license (Three.js authors): https://github.com/mrdoob/three.js/blob/dev/LICENSE
+// Adapted for use in this project
+
 const {
   EventDispatcher,
   MOUSE,
@@ -552,7 +556,7 @@ class OrbitControls extends EventDispatcher {
 
       rotateStart.copy(rotateEnd);
 
-      scope.update();
+      // scope.update();
     }
 
     function handleMouseMovePan(event) {
@@ -564,7 +568,7 @@ class OrbitControls extends EventDispatcher {
 
       panStart.copy(panEnd);
 
-      scope.update();
+      // scope.update();
     }
 
     function handleMouseWheel(event) {
@@ -576,7 +580,7 @@ class OrbitControls extends EventDispatcher {
         dollyOut(getZoomScale());
       }
 
-      scope.update();
+      // scope.update();
     }
 
     function handleTouchStartRotate() {
@@ -906,7 +910,7 @@ class OrbitControls extends EventDispatcher {
 
           handleTouchMoveRotate(event);
 
-          scope.update();
+          // scope.update();
 
           break;
 
@@ -915,7 +919,7 @@ class OrbitControls extends EventDispatcher {
 
           handleTouchMovePan(event);
 
-          scope.update();
+          // scope.update();
 
           break;
 
@@ -924,7 +928,7 @@ class OrbitControls extends EventDispatcher {
 
           handleTouchMoveDollyPan(event);
 
-          scope.update();
+          // scope.update();
 
           break;
 
@@ -933,7 +937,7 @@ class OrbitControls extends EventDispatcher {
 
           handleTouchMoveDollyRotate(event);
 
-          scope.update();
+          // scope.update();
 
           break;
 

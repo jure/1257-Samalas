@@ -33,6 +33,8 @@ export default class TextMaker {
   _data: Uint8Array;
   _dummies: THREE.Object3D[];
   _scales: number[];
+  _followingCameraRotation: number[];
+  _followingCamera: number[];
 
   constructor(characters?: string, maxCharsPerInstance?: number, maxInstances?: number) {
     this._characters = characters || DEFAULT_CHARS;
@@ -53,6 +55,8 @@ export default class TextMaker {
       this._maxInstances, // height
       RedFormat,
     );
+    this._followingCameraRotation = [];
+    this._followingCamera = [];
 
     const textShaderMaterial: THREE.ShaderMaterial = new ShaderMaterial({
       uniforms: {
@@ -77,6 +81,46 @@ export default class TextMaker {
     this.instancedMesh = new InstancedMesh(planeGeometry, textShaderMaterial, this._maxInstances);
     this.instancedMesh.frustumCulled = false;
     this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    this.instancedMesh.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
+      const offset = new THREE.Vector3(0, 0, -5); // This is an example offset; adjust as needed
+
+      // Update the camera rotation
+      if (this._followingCameraRotation.length > 0) {
+        for (let i = 0; i < this._followingCameraRotation.length; i++) {
+          this._dummies[this._followingCameraRotation[i]].quaternion.copy(camera.quaternion);
+          this.updateMatrix(this._followingCameraRotation[i]);
+        }
+      }
+      if (this._followingCamera.length > 0) {
+        // for (let i = 0; i < this._followingCamera.length; i++) {
+        //   if (this._dummies[this._followingCamera[i]].parent !== camera) {
+        //     //Add a test cube
+        //     const cube = new THREE.Mesh(
+        //       new THREE.BoxGeometry(1, 1, 1),
+        //       new THREE.MeshBasicMaterial({ color: 0xff0000 }),
+        //     );
+        //     cube.position.copy(offset);
+        //     scene.add(cube);
+        //     cube.parent = camera;
+        //     this._dummies[this._followingCamera[i]].position.add(offset);
+        //     camera.add(this._dummies[this._followingCamera[i]]);
+        //   }
+        //   camera.updateMatrix();
+        //   camera.updateMatrixWorld(true);
+        //   this._dummies[this._followingCamera[i]].updateMatrixWorld(true);
+        //   this.updateMatrix(
+        //     this._followingCamera[i],
+        //     this._dummies[this._followingCamera[i]].matrixWorld,
+        //   );
+        // this._dummies[this._followingCamera[i]].quaternion.copy(camera.quaternion);
+        // this._dummies[this._followingCamera[i]].position
+        // .copy(camera.position)
+        // .add(offset.applyQuaternion(camera.quaternion));
+        // this.updateMatrix(this._followingCamera[i]);
+        // }
+      }
+    };
   }
 
   generateTexture() {
@@ -125,7 +169,12 @@ export default class TextMaker {
     (this.instancedMesh.material as THREE.ShaderMaterial).needsUpdate = true;
   }
 
-  addText(message: string, color?: THREE.Color): null | TextInstance {
+  addText(
+    message: string,
+    color?: THREE.Color,
+    followCameraRotation?: boolean,
+    followCamera?: boolean,
+  ): null | TextInstance {
     const instanceId = this._instanceCount;
     // Check if we've reached the max instance count
     if (this._instanceCount >= this._maxInstances) {
@@ -140,6 +189,13 @@ export default class TextMaker {
     this._instanceBuffer.setX(instanceId, instanceId);
     this._instanceBuffer.needsUpdate = true;
     color && this.setColor(instanceId, color);
+
+    if (followCameraRotation) {
+      this._followingCameraRotation.push(instanceId);
+    }
+    if (followCamera) {
+      this._followingCamera.push(instanceId);
+    }
 
     // Return the instanceId for future updates and increment for the next use
     return {
@@ -175,8 +231,17 @@ export default class TextMaker {
     this.updateMatrix(instanceId);
   }
 
-  private updateMatrix(instanceId: number) {
-    this._dummies[instanceId].updateMatrix();
+  setRotation(instanceId: number, x: number, y: number, z: number) {
+    this._dummies[instanceId].rotation.set(x, y, z);
+    this.updateMatrix(instanceId);
+  }
+
+  private updateMatrix(instanceId: number, matrix?: THREE.Matrix4) {
+    if (matrix) {
+      this._dummies[instanceId].matrix.copy(matrix);
+    } else {
+      this._dummies[instanceId].updateMatrix();
+    }
     this.instancedMesh.setMatrixAt(instanceId, this._dummies[instanceId].matrix);
     this.instancedMesh.instanceMatrix.needsUpdate = true;
   }

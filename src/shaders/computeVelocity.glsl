@@ -26,7 +26,6 @@
 
     if ( mass > 0.0 ) {
       vec3 acceleration = vec3( 0.0 );
-
       // Gravity interaction
       for ( float y = 0.0; y < height; y++ ) {
 
@@ -78,8 +77,8 @@
 
           if ( compareFloats(ourType, 0.6) && compareFloats(theirType, 0.6)) {
             // Ship interactions (all avoid each other)
-            float nearField = -0.1 / (distanceSq * distanceSq); // distance to the 4th power
-
+            float nearField = (-0.1) / (distanceSq * distanceSq); // distance to the 4th power
+            
             acceleration += nearField * normalize( dPos );
           } else if (compareFloats(ourType, 0.6) && compareFloats(idParticle2, mass)) {
             // Ships are attracted to the destination
