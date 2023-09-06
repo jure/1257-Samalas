@@ -194,11 +194,9 @@ module.exports = function (webpackEnv) {
       pathinfo: isEnvDevelopment,
       // There will be one main bundle, and one file per asynchronous chunk.
       // In development, it does not produce real files.
-      filename: isEnvProduction ? "[name].[contenthash:2].js" : isEnvDevelopment && "bundle.js",
+      filename: isEnvProduction ? "[name].js" : isEnvDevelopment && "bundle.js",
       // There are also additional JS chunk files if you use code splitting.
-      chunkFilename: isEnvProduction
-        ? "[name].[contenthash:2].chunk.js"
-        : isEnvDevelopment && "[name].chunk.js",
+      chunkFilename: isEnvProduction ? "[name].chunk.js" : isEnvDevelopment && "[name].chunk.js",
       assetModuleFilename: "static/media/[name].[hash][ext]",
       // webpack uses `publicPath` to determine where the app is being served from.
       // It requires a trailing slash, or the file assets will get an incorrect path.

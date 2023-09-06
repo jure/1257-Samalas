@@ -41,7 +41,7 @@
   "scripts": {
     "start": "node scripts/start.js",
     "server": "node scripts/server.js",
-    "build": "node scripts/build.js",
+    "build": "node scripts/build.js && npx roadroller -O1 build/main.js -o build/main.js && advzip -4 build/build.zip -a build/index.html build/main.js && stat -f%z build/build.zip",
     "test": "node scripts/test.js --env=jsdom",
     "lint": "eslint 'src/**/*.{js,jsx,ts,tsx,json}'"
   },
