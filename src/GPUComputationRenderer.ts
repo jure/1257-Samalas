@@ -35,18 +35,19 @@ export interface Variable {
   wrapT: number;
   minFilter: number;
   magFilter: number;
+  buffer?: Float32Array;
 }
 
 export class GPUComputationRenderer {
-  variables: any[];
-  currentTextureIndex: number;
-  setDataType: (type: typeof FloatType) => this;
+  _variables: any[];
+  _currentTextureIndex: number;
+  // setDataType: (type: typeof FloatType) => this;
   addVariable: (
     variableName: string,
     computeFragmentShader: string,
     initialValueTexture: THREE.Texture,
+    buffer?: Float32Array,
   ) => Variable;
-  createShaderMaterial: any;
   setVariableDependencies: (variable: Variable, dependencies: Variable[] | null) => void;
   init: () => null | string;
   createRenderTarget: (
@@ -155,19 +156,24 @@ export class GPUComputationRenderer {
   THREE.WebGLRenderTarget;
   createTexture: () => THREE.DataTexture;
   renderTexture: (input: THREE.Texture, output: THREE.WebGLRenderTarget) => void;
-  doRenderTarget: (material: THREE.Material, output: THREE.WebGLRenderTarget) => void;
-  compute: () => void;
+  _doRenderTarget: (
+    material: THREE.Material,
+    output: THREE.WebGLRenderTarget,
+    buffer?: Float32Array,
+    callback?: ((buffer: Float32Array) => void)[],
+  ) => void;
+  compute: (callbacks: { [key: string]: ((buffer: Float32Array) => void)[] }) => void;
   getCurrentRenderTarget: (variable: Variable) => THREE.WebGLRenderTarget;
-  getAlternateRenderTarget: (variable: Variable) => THREE.WebGLRenderTarget;
-  dispose: () => void;
-  addResolutionDefine: (materialShader: THREE.ShaderMaterial) => void;
+  // getAlternateRenderTarget: (variable: Variable) => THREE.WebGLRenderTarget;
+  _addResolutionDefine: (materialShader: THREE.ShaderMaterial) => void;
+  _readPixelsAsync: (buffer: Float32Array) => Promise<Float32Array | undefined>;
 
   constructor(sizeX: number, sizeY: number, renderer: THREE.WebGLRenderer) {
-    this.variables = [];
+    this._variables = [];
 
-    this.currentTextureIndex = 0;
+    this._currentTextureIndex = 0;
 
-    let dataType = FloatType;
+    const dataType = FloatType;
 
     const scene = new Scene();
 
@@ -183,17 +189,18 @@ export class GPUComputationRenderer {
     const mesh = new Mesh(new PlaneGeometry(2, 2), passThruShader);
     scene.add(mesh);
 
-    this.setDataType = function (type: typeof FloatType) {
-      dataType = type;
-      return this;
-    };
+    // this.setDataType = function (type: typeof FloatType) {
+    //   dataType = type;
+    //   return this;
+    // };
 
     this.addVariable = function (
       variableName: string,
       computeFragmentShader: string,
       initialValueTexture: THREE.Texture,
+      buffer?: Float32Array,
     ): Variable {
-      const material = this.createShaderMaterial(computeFragmentShader);
+      const material = createShaderMaterial(computeFragmentShader);
 
       const variable = {
         name: variableName,
@@ -205,9 +212,10 @@ export class GPUComputationRenderer {
         wrapT: null,
         minFilter: NearestFilter,
         magFilter: NearestFilter,
+        buffer,
       };
 
-      this.variables.push(variable);
+      this._variables.push(variable);
 
       return variable as any;
     };
@@ -231,8 +239,8 @@ export class GPUComputationRenderer {
         return "No support for vertex shader textures.";
       }
 
-      for (let i = 0; i < this.variables.length; i++) {
-        const variable = this.variables[i];
+      for (let i = 0; i < this._variables.length; i++) {
+        const variable = this._variables[i];
 
         // Creates rendertargets and initialize them with input texture
         variable.renderTargets[0] = this.createRenderTarget(
@@ -266,8 +274,8 @@ export class GPUComputationRenderer {
               // Checks if variable exists
               let found = false;
 
-              for (let j = 0; j < this.variables.length; j++) {
-                if (depVar.name === this.variables[j].name) {
+              for (let j = 0; j < this._variables.length; j++) {
+                if (depVar.name === this._variables[j].name) {
                   found = true;
                   break;
                 }
@@ -291,17 +299,17 @@ export class GPUComputationRenderer {
         }
       }
 
-      this.currentTextureIndex = 0;
+      this._currentTextureIndex = 0;
 
       return null;
     };
 
-    this.compute = function () {
-      const currentTextureIndex = this.currentTextureIndex;
-      const nextTextureIndex = this.currentTextureIndex === 0 ? 1 : 0;
+    this.compute = function (callbacks?: { [key: string]: ((buffer: Float32Array) => void)[] }) {
+      const currentTextureIndex = this._currentTextureIndex;
+      const nextTextureIndex = this._currentTextureIndex === 0 ? 1 : 0;
 
-      for (let i = 0, il = this.variables.length; i < il; i++) {
-        const variable = this.variables[i];
+      for (let i = 0, il = this._variables.length; i < il; i++) {
+        const variable = this._variables[i];
 
         // Sets texture dependencies uniforms
         if (variable.dependencies !== null) {
@@ -315,50 +323,40 @@ export class GPUComputationRenderer {
         }
 
         // Performs the computation for this variable
-        this.doRenderTarget(variable.material, variable.renderTargets[nextTextureIndex]);
+        // console.log("Rendering variable", variable.name);
+        if (variable.buffer && callbacks && callbacks[variable.name]) {
+          this._doRenderTarget(
+            variable.material,
+            variable.renderTargets[nextTextureIndex],
+            variable.buffer,
+            callbacks[variable.name],
+          );
+        } else {
+          this._doRenderTarget(variable.material, variable.renderTargets[nextTextureIndex]);
+        }
       }
 
-      this.currentTextureIndex = nextTextureIndex;
+      this._currentTextureIndex = nextTextureIndex;
     };
 
     this.getCurrentRenderTarget = function (variable: Variable): THREE.WebGLRenderTarget {
-      return variable.renderTargets[this.currentTextureIndex];
+      return variable.renderTargets[this._currentTextureIndex];
     };
 
-    this.getAlternateRenderTarget = function (variable: Variable): THREE.WebGLRenderTarget {
-      return variable.renderTargets[this.currentTextureIndex === 0 ? 1 : 0];
-    };
-
-    this.dispose = function (): void {
-      mesh.geometry.dispose();
-      mesh.material.dispose();
-
-      const variables = this.variables;
-
-      for (let i = 0; i < variables.length; i++) {
-        const variable = variables[i];
-
-        if (variable.initialValueTexture) variable.initialValueTexture.dispose();
-
-        const renderTargets = variable.renderTargets;
-
-        for (let j = 0; j < renderTargets.length; j++) {
-          const renderTarget = renderTargets[j];
-          renderTarget.dispose();
-        }
-      }
-    };
+    // this.getAlternateRenderTarget = function (variable: Variable): THREE.WebGLRenderTarget {
+    //   return variable.renderTargets[this._currentTextureIndex === 0 ? 1 : 0];
+    // };
 
     function addResolutionDefine(materialShader: THREE.ShaderMaterial) {
       materialShader.defines.resolution =
         "vec2( " + sizeX.toFixed(1) + ", " + sizeY.toFixed(1) + " )";
     }
 
-    this.addResolutionDefine = addResolutionDefine;
+    this._addResolutionDefine = addResolutionDefine;
 
     // The following functions can be used to compute things manually
 
-    function createShaderMaterial(computeFragmentShader: string, uniforms: any) {
+    function createShaderMaterial(computeFragmentShader: string, uniforms?: any) {
       uniforms = uniforms || {};
 
       const material = new ShaderMaterial({
@@ -372,8 +370,6 @@ export class GPUComputationRenderer {
 
       return material;
     }
-
-    this.createShaderMaterial = createShaderMaterial;
 
     this.createRenderTarget = function (
       sizeXTexture: number,
@@ -419,14 +415,16 @@ export class GPUComputationRenderer {
 
       passThruUniforms.passThruTexture.value = input as any;
 
-      this.doRenderTarget(passThruShader, output);
+      this._doRenderTarget(passThruShader, output);
 
       passThruUniforms.passThruTexture.value = null;
     };
 
-    this.doRenderTarget = function (
+    this._doRenderTarget = function (
       material: THREE.Material,
       output: THREE.WebGLRenderTarget,
+      buffer?: Float32Array,
+      callbacks?: ((buffer: Float32Array) => void)[],
     ): void {
       const currentRenderTarget = renderer.getRenderTarget();
 
@@ -438,6 +436,15 @@ export class GPUComputationRenderer {
       mesh.material = material as any;
       renderer.setRenderTarget(output);
       renderer.render(scene, camera);
+
+      if (buffer && callbacks?.length) {
+        this._readPixelsAsync(buffer).then(() => {
+          for (let i = 0; i < callbacks.length; i++) {
+            callbacks[i](buffer);
+          }
+        });
+      }
+
       mesh.material = passThruShader;
 
       renderer.xr.enabled = currentXrEnabled;
@@ -446,24 +453,125 @@ export class GPUComputationRenderer {
       renderer.setRenderTarget(currentRenderTarget);
     };
 
+    // Async readback
+    this._readPixelsAsync = async function (buffer: Float32Array) {
+      const gl = renderer.getContext();
+      const width = sizeX;
+      const height = sizeY;
+
+      if (!(gl instanceof WebGL2RenderingContext)) {
+        console.error("!WebGL2");
+        return;
+      }
+
+      // Use the provided readPixelsAsync function
+      const pixelData = await readPixelsAsync(gl, 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer);
+      // renderer.setRenderTarget(rt);
+      return pixelData;
+    };
+
+    // this._readPixelsAsync = async function (variable: Variable) {
+    //   const gl = renderer.getContext();
+    //   const width = sizeX;
+    //   const height = sizeY;
+
+    //   if (!(gl instanceof WebGL2RenderingContext)) {
+    //     console.error("!WebGL2");
+    //     return;
+    //   }
+
+    //   // Create a buffer to receive the data
+    //   const buffer = new Float32Array(width * height * 4); // assuming RGBA float format
+    //   // // Ensure the correct framebuffer is bound
+    //   // const rt = renderer.getRenderTarget();
+    //   // const renderTarget = this.getCurrentRenderTarget(variable);
+    //   // renderer.setRenderTarget(renderTarget);
+
+    //   // Use the provided readPixelsAsync function
+    //   const pixelData = await readPixelsAsync(gl, 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer);
+    //   // renderer.setRenderTarget(rt);
+    //   return pixelData;
+    // };
+
     // Shaders
 
     function getPassThroughVertexShader() {
-      return "void main()	{\n" + "\n" + "	gl_Position = vec4( position, 1.0 );\n" + "\n" + "}\n";
+      return "void main()	{ gl_Position = vec4( position, 1.0 ); }";
     }
 
     function getPassThroughFragmentShader() {
       return (
-        "uniform sampler2D passThruTexture;\n" +
-        "\n" +
-        "void main() {\n" +
-        "\n" +
-        "	vec2 uv = gl_FragCoord.xy / resolution.xy;\n" +
-        "\n" +
-        "	gl_FragColor = texture2D( passThruTexture, uv );\n" +
-        "\n" +
-        "}\n"
+        "uniform sampler2D passThruTexture;" +
+        "void main() {" +
+        "	vec2 uv = gl_FragCoord.xy / resolution.xy;" +
+        "	gl_FragColor = texture2D( passThruTexture, uv );" +
+        "}"
       );
     }
   }
+}
+
+function clientWaitAsync(
+  gl: WebGL2RenderingContext,
+  sync: WebGLSync,
+  flags: GLbitfield,
+  interval_ms: number,
+) {
+  return new Promise<void>((resolve, reject) => {
+    function test() {
+      const res = gl.clientWaitSync(sync, flags, 0);
+      if (res === gl.WAIT_FAILED) {
+        reject();
+        return;
+      }
+      if (res === gl.TIMEOUT_EXPIRED) {
+        setTimeout(test, interval_ms);
+        return;
+      }
+      resolve();
+    }
+    test();
+  });
+}
+
+async function getBufferSubDataAsync(
+  gl: WebGL2RenderingContext,
+  target: GLenum,
+  buffer: WebGLBuffer,
+  srcByteOffset: GLintptr,
+  dstBuffer: Float32Array,
+  /* optional */ dstOffset?: GLuint,
+  /* optional */ length?: GLuint,
+) {
+  const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  gl.flush();
+
+  await clientWaitAsync(gl, sync!, 0, 10);
+  gl.deleteSync(sync);
+
+  gl.bindBuffer(target, buffer);
+  gl.getBufferSubData(target, srcByteOffset, dstBuffer, dstOffset, length);
+  gl.bindBuffer(target, null);
+}
+
+async function readPixelsAsync(
+  gl: WebGL2RenderingContext,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  format: GLenum,
+  type: GLenum,
+  dest: Float32Array,
+) {
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
+  gl.bufferData(gl.PIXEL_PACK_BUFFER, dest.byteLength, gl.STREAM_READ);
+  gl.readPixels(x, y, w, h, format, type, 0);
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+
+  await getBufferSubDataAsync(gl, gl.PIXEL_PACK_BUFFER, buf!, 0, dest);
+
+  gl.deleteBuffer(buf);
+  return dest;
 }

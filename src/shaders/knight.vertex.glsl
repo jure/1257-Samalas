@@ -4,6 +4,8 @@
 
 uniform sampler2D texturePosition;
 uniform sampler2D textureVelocity;
+uniform vec3 playerColor;
+uniform vec3 enemyColor;
 attribute vec2 dtUv;
 // uniform float cameraConstant;
 // uniform float density;
@@ -36,9 +38,9 @@ void main() {
   float mass = velTemp.w;
 
   if(compareFloats(posTemp.w, 0.600, 0.0001)) {
-    vColor = vec4( 0.0, 1.0, 0.0, 1.0 );
+    vColor = vec4(playerColor,1.);
   } else if (compareFloats(posTemp.w,0.601, 0.0001)) {
-    vColor = vec4( 1.0, 0.0, 0.0, 1.0 );
+    vColor = vec4(enemyColor,1.);
   } else {
     vColor = vec4( 1.0, 1.0, 0.0, 0.0 );
   }

@@ -28,8 +28,7 @@ vec4 cc = texture2D(t, cu);
 if (cc.a < 0.2) {
     discard;
     // gl_FragColor = vec4(ci/48.0, 0.0, 0.0, 1.0);
-    // return;
-    
+    // return;    
 };
 gl_FragColor = (cc) * vec4(c, 1.0);
 }

@@ -16,7 +16,6 @@
     vec2 uv = gl_FragCoord.xy / resolution.xy;
     float idParticle = uv.y * resolution.x + uv.x;
  
-
     vec4 tmpPos = texture2D( texturePosition, uv );
     vec3 pos = tmpPos.xyz;
     float ourType = tmpPos.w;
@@ -101,8 +100,12 @@
       // Dynamics
       vel += delta * acceleration;
       if(length(vel) > 0.) {
-        vel = normalize( vel ) * min( length( vel ), 1.5 );
+        vel = normalize( vel ) * min( length( vel ), 4.5 );
       }
+    } else {
+      // Dead particle, reset it
+      gl_FragColor = vec4( 0 );
+      return;
     }
 
     gl_FragColor = vec4( vel, mass );

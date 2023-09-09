@@ -197,7 +197,7 @@ module.exports = function (webpackEnv) {
       filename: isEnvProduction ? "[name].js" : isEnvDevelopment && "bundle.js",
       // There are also additional JS chunk files if you use code splitting.
       chunkFilename: isEnvProduction ? "[name].chunk.js" : isEnvDevelopment && "[name].chunk.js",
-      assetModuleFilename: "static/media/[name].[hash][ext]",
+      assetModuleFilename: "[name][ext]",
       // webpack uses `publicPath` to determine where the app is being served from.
       // It requires a trailing slash, or the file assets will get an incorrect path.
       // We inferred the "public path" (such as / or /my-project) from homepage.
@@ -316,6 +316,11 @@ module.exports = function (webpackEnv) {
     },
     module: {
       strictExportPresence: true,
+      parser: {
+        typescript: {
+          worker: ["*_audioContext.audioWorklet.addModule()", "*audioWorklet.addModule()", "..."],
+        },
+      },
       rules: [
         // Handle node_modules packages that contain sourcemaps
         shouldUseSourceMap && {

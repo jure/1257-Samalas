@@ -43,7 +43,6 @@ export default class TextMaker {
     this._texture = this.generateTexture();
     this._dummies = [];
     this._scales = []; // This is an additional uniform scaling factor
-    this._maxInstances = 1024; // for example
     this._instanceCount = 0;
     this._lengthsBuffer = new InstancedBufferAttribute(new Float32Array(this._maxInstances), 1);
     this._instanceBuffer = new InstancedBufferAttribute(new Float32Array(this._maxInstances), 1);
@@ -182,7 +181,7 @@ export default class TextMaker {
       return null;
     }
     this._instanceCount++;
-
+    this.instancedMesh.count = this._instanceCount;
     this._dummies[instanceId] = new Object3D();
     // Update the data texture
     this.updateMessageTexture(instanceId, message);
