@@ -65,6 +65,8 @@ export default class TextMaker {
       },
       vertexShader,
       fragmentShader,
+      depthWrite: false,
+      depthTest: false,
     });
 
     textShaderMaterial.transparent = true;
@@ -132,15 +134,27 @@ export default class TextMaker {
     if (!ctx) throw new Error();
 
     const size = { x: 90, y: 128 };
+    function drawStroked(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
+      ctx.font = `${size.y}px monospace`;
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "miter"; //Experiment with "bevel" & "round" for the effect you want!
+      ctx.miterLimit = 2;
+      ctx.strokeText(text, x, y);
+      ctx.fillStyle = "white";
+      ctx.fillText(text, x, y);
+    }
+
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.font = `${size.y}px monospace`; // Adjust font size to fit within the canvas.
+    // ctx.font = `${size.y}px monospace`; // Adjust font size to fit within the canvas.
     ctx.fillStyle = "white";
-
+    ctx.strokeStyle = "black";
     for (let i = 0; i < this._characters.length; i++) {
       const x = size.x * (i % 8) + size.x / 2;
       const y = size.y * Math.floor(i / 8) + size.y;
-      ctx.fillText(this._characters[i], x, y);
+      drawStroked(ctx, this._characters[i], x, y);
+      // ctx.fillText(this._characters[i], x, y);
     }
 
     const t = new Texture(canvas);

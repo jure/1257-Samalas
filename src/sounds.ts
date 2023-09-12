@@ -1,8 +1,5 @@
 const gsound = (e: number, V: number) => {
   // Synth adapted from Xem's Minisynth
-  const v = [];
-  const p = 0;
-  const c = 0;
   const D = [];
   for (let i = 0; i < 44100 * V; i++) {
     // V: note length in seconds
@@ -26,17 +23,6 @@ const gsound = (e: number, V: number) => {
           (1 - (i - 88.2) / (44100 * (V - 0.002))) ** ((0.5 * Math.log((1e4 * e) / 44100)) ** 2) *
           w(i, e);
   }
-
-  // const A = new AudioContext();
-  // const y = ac.createBuffer(1, D.length, 44100);
-  // y.getChannelData(0).set(D);
-  // const s = ac.createBufferSource();
-  // s.buffer = y;
-  // // console.log("Inside", s);
-  // s.connect(ac.destination);
-  // s.start();
-
-  // return buffer
   return D;
 };
 const ac = new window.AudioContext();

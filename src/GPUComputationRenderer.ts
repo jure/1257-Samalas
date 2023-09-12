@@ -2,20 +2,6 @@
 // MIT license (Three.js authors): https://github.com/mrdoob/three.js/blob/dev/LICENSE
 // And TypeScriptified with help from https://github.com/three-types/three-ts-types/blob/master/types/three/examples/jsm/misc/GPUComputationRenderer.d.ts
 // Adapted specifically for this project
-const {
-  Camera,
-  ClampToEdgeWrapping,
-  DataTexture,
-  FloatType,
-  Mesh,
-  NearestFilter,
-  PlaneGeometry,
-  RGBAFormat,
-  Scene,
-  ShaderMaterial,
-  WebGLRenderTarget,
-  Texture,
-} = THREE;
 const T = THREE;
 /**
  * GPUComputationRenderer, based on SimulationRenderer by zz85
@@ -28,7 +14,7 @@ const T = THREE;
 export interface Variable {
   name: string;
   initialValueTexture: any;
-  material: typeof ShaderMaterial;
+  material: typeof T.ShaderMaterial;
   dependencies: Variable[];
   renderTargets: THREE.WebGLRenderTarget[];
   wrapS: number;
@@ -173,11 +159,11 @@ export class GPUComputationRenderer {
 
     this._currentTextureIndex = 0;
 
-    const dataType = FloatType;
+    const dataType = T.FloatType;
 
-    const scene = new Scene();
+    const scene = new T.Scene();
 
-    const camera = new Camera();
+    const camera = new T.Camera();
     camera.position.z = 1;
 
     const passThruUniforms = {
@@ -186,7 +172,7 @@ export class GPUComputationRenderer {
 
     const passThruShader = createShaderMaterial(getPassThroughFragmentShader(), passThruUniforms);
 
-    const mesh = new Mesh(new PlaneGeometry(2, 2), passThruShader);
+    const mesh = new T.Mesh(new T.PlaneGeometry(2, 2), passThruShader);
     scene.add(mesh);
 
     // this.setDataType = function (type: typeof FloatType) {
@@ -210,8 +196,8 @@ export class GPUComputationRenderer {
         renderTargets: [],
         wrapS: null,
         wrapT: null,
-        minFilter: NearestFilter,
-        magFilter: NearestFilter,
+        minFilter: T.NearestFilter,
+        magFilter: T.NearestFilter,
         buffer,
       };
 
@@ -232,11 +218,11 @@ export class GPUComputationRenderer {
         renderer.capabilities.isWebGL2 === false &&
         renderer.extensions.has("OES_texture_float") === false
       ) {
-        return "No OES_texture_float support for float textures.";
+        return "!OES_texture_float";
       }
 
       if (renderer.capabilities.maxVertexTextures === 0) {
-        return "No support for vertex shader textures.";
+        return "!vertexShaderTex";
       }
 
       for (let i = 0; i < this._variables.length; i++) {
@@ -282,12 +268,7 @@ export class GPUComputationRenderer {
               }
 
               if (!found) {
-                return (
-                  "Variable dependency not found. Variable=" +
-                  variable.name +
-                  ", dependency=" +
-                  depVar.name
-                );
+                return "!var=" + variable.name + ", dep=" + depVar.name;
               }
             }
 
@@ -359,7 +340,7 @@ export class GPUComputationRenderer {
     function createShaderMaterial(computeFragmentShader: string, uniforms?: any) {
       uniforms = uniforms || {};
 
-      const material = new ShaderMaterial({
+      const material = new T.ShaderMaterial({
         name: "GPUComputationShader",
         uniforms: uniforms,
         vertexShader: getPassThroughVertexShader(),
@@ -382,18 +363,18 @@ export class GPUComputationRenderer {
       sizeXTexture = sizeXTexture || sizeX;
       sizeYTexture = sizeYTexture || sizeY;
 
-      wrapS = wrapS || ClampToEdgeWrapping;
-      wrapT = wrapT || ClampToEdgeWrapping;
+      wrapS = wrapS || T.ClampToEdgeWrapping;
+      wrapT = wrapT || T.ClampToEdgeWrapping;
 
-      minFilter = minFilter || NearestFilter;
-      magFilter = magFilter || NearestFilter;
+      minFilter = minFilter || T.NearestFilter;
+      magFilter = magFilter || T.NearestFilter;
 
-      const renderTarget = new WebGLRenderTarget(sizeXTexture, sizeYTexture, {
+      const renderTarget = new T.WebGLRenderTarget(sizeXTexture, sizeYTexture, {
         wrapS: wrapS,
         wrapT: wrapT as any,
         minFilter: minFilter,
         magFilter: magFilter,
-        format: RGBAFormat,
+        format: T.RGBAFormat,
         type: dataType,
         depthBuffer: false,
       });
@@ -403,7 +384,7 @@ export class GPUComputationRenderer {
 
     this.createTexture = function (): THREE.DataTexture {
       const data = new Float32Array(sizeX * sizeY * 4);
-      const texture = new DataTexture(data, sizeX, sizeY, RGBAFormat, FloatType);
+      const texture = new T.DataTexture(data, sizeX, sizeY, T.RGBAFormat, T.FloatType);
       texture.needsUpdate = true;
       return texture;
     };
@@ -496,17 +477,11 @@ export class GPUComputationRenderer {
     // Shaders
 
     function getPassThroughVertexShader() {
-      return "void main()	{ gl_Position = vec4( position, 1.0 ); }";
+      return "void main(){gl_Position=vec4(position,1.0);}";
     }
 
     function getPassThroughFragmentShader() {
-      return (
-        "uniform sampler2D passThruTexture;" +
-        "void main() {" +
-        "	vec2 uv = gl_FragCoord.xy / resolution.xy;" +
-        "	gl_FragColor = texture2D( passThruTexture, uv );" +
-        "}"
-      );
+      return `uniform sampler2D passThruTexture; void main(){vec2 uv = gl_FragCoord.xy/resolution.xy;gl_FragColor=texture2D(passThruTexture,uv);}`;
     }
   }
 }

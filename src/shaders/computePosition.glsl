@@ -1,5 +1,5 @@
   @nomangle resolution texturePosition textureVelocity
-  #define delta ( 1.0 / 60.0 )
+  #define delta (1.0/60.0)
 
   void main() {
 
@@ -15,11 +15,8 @@
     if ( mass == 0.0 ) {
       vel = vec3( 0.0 );
     }
-
-    // Dynamics
-    if(type < 0.5) {
-      // type 0.0 is a fixed particle
-    } else {
+    // Types above 0.5 are moving
+    if(type > 0.5) {
       pos += vel * delta;
     }
     gl_FragColor = vec4( pos, type );

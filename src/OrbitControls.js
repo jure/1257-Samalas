@@ -2,19 +2,39 @@
 // MIT license (Three.js authors): https://github.com/mrdoob/three.js/blob/dev/LICENSE
 // Adapted for use in this._project
 
-const {
-  EventDispatcher,
-  MOUSE,
-  Quaternion,
-  Spherical,
-  TOUCH,
-  Vector2,
-  Vector3,
-  Plane,
-  Ray,
-  MathUtils,
-  // eslint-disable-next-line no-undef
-} = THREE;
+// const {
+//   EventDispatcher,
+//   MOUSE,
+//   Quaternion,
+//   Spherical,
+//   TOUCH,
+//   Vector2,
+//   Vector3,
+//   Plane,
+//   Ray,
+//   MathUtils,
+//   // eslint-disable-next-line no-undef
+// } = THREE;
+// eslint-disable-next-line no-undef
+const EventDispatcher = THREE.EventDispatcher;
+// eslint-disable-next-line no-undef
+const MOUSE = THREE.MOUSE;
+// eslint-disable-next-line no-undef
+const Quaternion = THREE.Quaternion;
+// eslint-disable-next-line no-undef
+const Spherical = THREE.Spherical;
+// eslint-disable-next-line no-undef
+const TOUCH = THREE.TOUCH;
+// eslint-disable-next-line no-undef
+// const Vector2 = THREE.Vector2;
+// eslint-disable-next-line no-undef
+// const Vector3 = THREE.Vector3;
+// eslint-disable-next-line no-undef
+const Plane = THREE.Plane;
+// eslint-disable-next-line no-undef
+const Ray = THREE.Ray;
+// eslint-disable-next-line no-undef
+const MathUtils = THREE.MathUtils;
 
 // OrbitControls performs orbiting, dollying (zooming), and panning.
 // Unlike TrackballControls, it maintains the "up" direction object.up (+Y by default).
@@ -29,15 +49,19 @@ const _ray = new Ray();
 const _plane = new Plane();
 const TILT_LIMIT = Math.cos(70 * MathUtils.DEG2RAD);
 
-const offset = new Vector3();
+const offset = new THREE.Vector3();
 
 // so camera.up is the orbit axis
-const quat = new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), new Vector3(0, 1, 0));
+// eslint-disable-next-line no-undef
+const quat = new THREE.Quaternion().setFromUnitVectors(
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 1, 0),
+);
 const quatInverse = quat.clone().invert();
 
-const lastPosition = new Vector3();
+const lastPosition = new THREE.Vector3();
 const lastQuaternion = new Quaternion();
-const lastTargetPosition = new Vector3();
+const lastTargetPosition = new THREE.Vector3();
 
 const twoPI = 2 * Math.PI;
 
@@ -63,16 +87,16 @@ const sphericalDelta = new Spherical();
 
 let scale = 1;
 
-const rotateStart = new Vector2();
-const rotateEnd = new Vector2();
-const rotateDelta = new Vector2();
+const rotateStart = new THREE.Vector2();
+const rotateEnd = new THREE.Vector2();
+const rotateDelta = new THREE.Vector2();
 
-const dollyStart = new Vector2();
-const dollyEnd = new Vector2();
-const dollyDelta = new Vector2();
+const dollyStart = new THREE.Vector2();
+const dollyEnd = new THREE.Vector2();
+const dollyDelta = new THREE.Vector2();
 
-const dollyDirection = new Vector3();
-const mouse = new Vector2();
+const dollyDirection = new THREE.Vector3();
+const mouse = new THREE.Vector2();
 let performCursorZoom = false;
 
 const pointers = [];
@@ -90,15 +114,11 @@ class OrbitControls extends EventDispatcher {
     this.enabled = true;
 
     // "target" sets the location of focus, where the object orbits around
-    this._target = new Vector3();
+    this._target = new THREE.Vector3();
 
     // How far you can dolly in and out ( PerspectiveCamera only )
     this._minDistance = 0;
-    this._maxDistance = Infinity;
-
-    // How far you can zoom in and out ( OrthographicCamera only )
-    this._minZoom = 0;
-    this._maxZoom = Infinity;
+    this._maxDistance = 100;
 
     // How far you can orbit vertically, upper and lower limits.
     // Range is 0 to Math.PI radians.
@@ -130,7 +150,7 @@ class OrbitControls extends EventDispatcher {
     // Set to true to automatically rotate around the target
     // If auto-rotate is enabled, you must call controls.update() in your animation loop
     this.autoRotate = false;
-    this._autoRotateSpeed = 0.5; // 30 seconds per orbit when fps is 60
+    this._autoRotateSpeed = 1.5; // 30 seconds per orbit when fps is 60
 
     // Mouse buttons
     this._mouseButtons = { _LEFT: MOUSE.ROTATE };
@@ -243,7 +263,7 @@ class OrbitControls extends EventDispatcher {
 
     // adjust the camera position based on zoom only if we're not zooming to the cursor or if it's an ortho camera
     // we adjust zoom later in these cases
-    if ((this._zoomToCursor && performCursorZoom) || this._object.isOrthographicCamera) {
+    if (this._zoomToCursor && performCursorZoom) {
       spherical.radius = clampDistance(spherical.radius);
     } else {
       spherical.radius = clampDistance(spherical.radius * scale);
@@ -273,25 +293,6 @@ class OrbitControls extends EventDispatcher {
         const radiusDelta = prevRadius - newRadius;
         this._object.position.addScaledVector(dollyDirection, radiusDelta);
         this._object.updateMatrixWorld();
-      } else if (this._object.isOrthographicCamera) {
-        // adjust the ortho camera position based on zoom changes
-        const mouseBefore = new Vector3(mouse.x, mouse.y, 0);
-        mouseBefore.unproject(this._object);
-
-        this._object.zoom = Math.max(
-          this._minZoom,
-          Math.min(this._maxZoom, this._object.zoom / scale),
-        );
-        this._object.updateProjectionMatrix();
-        zoomChanged = true;
-
-        const mouseAfter = new Vector3(mouse.x, mouse.y, 0);
-        mouseAfter.unproject(this._object);
-
-        this._object.position.sub(mouseAfter).add(mouseBefore);
-        this._object.updateMatrixWorld();
-
-        newRadius = offset.length();
       } else {
         console.warn(
           "WARNING: OrbitControls.js encountered an unknown camera type - zoom to cursor disabled.",
@@ -314,13 +315,6 @@ class OrbitControls extends EventDispatcher {
         }
         // }
       }
-    } else if (this._object.isOrthographicCamera) {
-      this._object.zoom = Math.max(
-        this._minZoom,
-        Math.min(this._maxZoom, this._object.zoom / scale),
-      );
-      this._object.updateProjectionMatrix();
-      zoomChanged = true;
     }
 
     scale = 1;
@@ -383,7 +377,7 @@ function rotateUp(angle) {
 }
 
 function dollyOut(dollyScale) {
-  if (t._object.isPerspectiveCamera || t._object.isOrthographicCamera) {
+  if (t._object.isPerspectiveCamera) {
     scale /= dollyScale;
   } else {
     console.warn(
@@ -394,7 +388,7 @@ function dollyOut(dollyScale) {
 }
 
 function dollyIn(dollyScale) {
-  if (t._object.isPerspectiveCamera || t._object.isOrthographicCamera) {
+  if (t._object.isPerspectiveCamera) {
     scale *= dollyScale;
   } else {
     console.warn(
@@ -546,6 +540,7 @@ function handleTouchMoveDollyRotate(event) {
 //
 
 function onPointerDown(event) {
+  console.log("onpointerdown");
   if (t.enabled === false) return;
 
   if (pointers.length === 0) {
@@ -660,7 +655,7 @@ function onTouchStart(event) {
 
   switch (pointers.length) {
     case 1:
-      switch (t._touches.ONE) {
+      switch (t._touches._ONE) {
         case TOUCH.ROTATE:
           if (t._enableRotate === false) return;
 
@@ -676,8 +671,8 @@ function onTouchStart(event) {
       break;
 
     case 2:
-      switch (t._touches.TWO) {
-        case TOUCH._DOLLY_PAN:
+      switch (t._touches._TWO) {
+        case TOUCH.DOLLY_PAN:
           if (t._enableZoom === false) return;
 
           handleTouchStartDollyPan();
@@ -686,7 +681,7 @@ function onTouchStart(event) {
 
           break;
 
-        case TOUCH._DOLLY_ROTATE:
+        case TOUCH.DOLLY_ROTATE:
           if (t._enableZoom === false && t._enableRotate === false) return;
 
           handleTouchStartDollyRotate();
@@ -770,7 +765,7 @@ function trackPointer(event) {
   let position = pointerPositions[event.pointerId];
 
   if (position === undefined) {
-    position = new Vector2();
+    position = new THREE.Vector2();
     pointerPositions[event.pointerId] = position;
   }
 

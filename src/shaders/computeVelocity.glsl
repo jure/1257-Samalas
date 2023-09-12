@@ -1,5 +1,5 @@
   @nomangle resolution texturePosition textureVelocity
-  #define delta ( 1.0 / 60.0 )
+  #define delta (1.0/60.0)
 
   float gravityConstant = 100.;
   float density = 0.45;
@@ -100,7 +100,7 @@
       // Dynamics
       vel += delta * acceleration;
       if(length(vel) > 0.) {
-        vel = normalize( vel ) * min( length( vel ), 4.5 );
+        vel = normalize( vel ) * min( length( vel ), 1.5 );
       }
     } else {
       // Dead particle, reset it
