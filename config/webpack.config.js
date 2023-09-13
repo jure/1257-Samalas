@@ -28,7 +28,7 @@ const createEnvironmentHash = require("./webpack/persistentCache/createEnvironme
 const HtmlInlineScriptPlugin = require("html-inline-script-webpack-plugin");
 
 // Source maps are resource heavy and can cause out of memory issue for large source files.
-const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== "false";
+const shouldUseSourceMap = false; // process.env.GENERATE_SOURCEMAP !== "false";
 
 const babelRuntimeEntry = require.resolve("babel-preset-react-app");
 const babelRuntimeEntryHelpers = require.resolve(
@@ -239,21 +239,54 @@ module.exports = function (webpackEnv) {
             compress: {
               ecma: 5,
               warnings: false,
-              drop_console: true,
-              // Disabled because of an issue with Uglify breaking seemingly valid code:
-              // https://github.com/facebook/create-react-app/issues/2376
-              // Pending further investigation:
-              // https://github.com/mishoo/UglifyJS2/issues/2011
-              comparisons: false,
-              // Disabled because of an issue with Terser breaking valid code:
-              // https://github.com/facebook/create-react-app/issues/5250
-              // Pending further investigation:
-              // https://github.com/terser-js/terser/issues/120
-              inline: 2,
+              // drop_console: true,
+              // // Disabled because of an issue with Uglify breaking seemingly valid code:
+              // // https://github.com/facebook/create-react-app/issues/2376
+              // // Pending further investigation:
+              // // https://github.com/mishoo/UglifyJS2/issues/2011
+              // comparisons: false,
             },
             mangle: {
+              // properties: true
               properties: {
-                regex: /^_/,
+                keep_quoted: true,
+                // debug: true,
+                reserved: [
+                  "position",
+                  "normal",
+                  "attributes",
+                  "scale",
+                  "quaternion",
+                  "rotation",
+                  "instanceMatrix",
+                  "needsUpdate",
+                  "emissive",
+                  "color",
+                  "material",
+                  "defines",
+                  "resolution",
+                  "image",
+                  "data",
+                  "uniforms",
+                  "instancedMesh",
+                  "uv",
+                  "enabled",
+                  "time",
+                  "r",
+                  "g",
+                  "b",
+                  "a",
+                  "onBeforeCompile",
+                  "onBeforeRender",
+                  "x",
+                  "y",
+                  "z",
+                  "w",
+                ],
+                // debug: true,
+                // undeclared: true,
+                // reserved: ["THREE"],
+                // regex: /^_/,
               },
               // safari10: true,
             },
@@ -579,7 +612,7 @@ module.exports = function (webpackEnv) {
             }),
             configOverwrite: {
               compilerOptions: {
-                sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+                sourceMap: false, // isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
                 skipLibCheck: true,
                 inlineSourceMap: false,
                 declarationMap: false,
@@ -625,14 +658,6 @@ module.exports = function (webpackEnv) {
           // ESLint class options
           cwd: paths.appPath,
           resolvePluginsRelativeTo: __dirname,
-          baseConfig: {
-            extends: [require.resolve("eslint-config-react-app/base")],
-            rules: {
-              ...(!hasJsxRuntime && {
-                "react/react-in-jsx-scope": "error",
-              }),
-            },
-          },
         }),
       new BundleAnalyzerPlugin({ openAnalyzer: false, analyzerMode: "static" }),
     ].filter(Boolean),

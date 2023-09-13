@@ -1,25 +1,25 @@
-  @nomangle resolution texturePosition textureVelocity
+  @nomangle resolution tP tV
   #define delta (1.0/60.0)
-
-  float gravityConstant = 100.;
+  uniform float d; // difficulty
+  
   float density = 0.45;
 
   const float width = resolution.x;
   const float height = resolution.y;
-
+  
   bool compareFloats(float a, float b) {
     return abs(a - b) < 0.01; // lenient comparison
   }
 
   void main()	{
-
+    float gravityConstant = 100. * (d+1.);
     vec2 uv = gl_FragCoord.xy / resolution.xy;
     float idParticle = uv.y * resolution.x + uv.x;
  
-    vec4 tmpPos = texture2D( texturePosition, uv );
+    vec4 tmpPos = texture2D( tP, uv );
     vec3 pos = tmpPos.xyz;
     float ourType = tmpPos.w;
-    vec4 tmpVel = texture2D( textureVelocity, uv );
+    vec4 tmpVel = texture2D( tV, uv );
     vec3 vel = tmpVel.xyz;
     float mass = tmpVel.w; // also target
 
@@ -32,9 +32,9 @@
 
           vec2 secondParticleCoords = vec2( x + 0.5, y + 0.5 ) / resolution.xy;
 
-          vec4 pos2Temp = texture2D( texturePosition, secondParticleCoords );
+          vec4 pos2Temp = texture2D( tP, secondParticleCoords );
           vec3 pos2 = pos2Temp.xyz;
-          vec4 velTemp2 = texture2D( textureVelocity, secondParticleCoords );
+          vec4 velTemp2 = texture2D( tV, secondParticleCoords );
           vec3 vel2 = velTemp2.xyz;
           float mass2 = velTemp2.w;
 
@@ -100,7 +100,7 @@
       // Dynamics
       vel += delta * acceleration;
       if(length(vel) > 0.) {
-        vel = normalize( vel ) * min( length( vel ), 1.5 );
+        vel = normalize( vel ) * min( length( vel ), 1.5 * (d+1.));
       }
     } else {
       // Dead particle, reset it

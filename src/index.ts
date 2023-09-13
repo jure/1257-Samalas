@@ -9,14 +9,15 @@ import knightFragment from "./shaders/knight.fragment.glsl";
 import { OrbitControls } from "./OrbitControls";
 import { playRandomSoundAtPosition } from "./sounds";
 import Music from "./music";
-// import { LineMaterial, LineGeometry } from "./line";
-import Stats from "three/addons/libs/stats.module.js";
-let drawCallPanel: Stats.Panel;
+
+// P is player, E si enemy
+// import Stats from "three/addons/libs/stats.module.js";
+// let drawCallPanel: Stats.Panel;
 const intersectedPlace: CustomGroup | null = null; // The sphere currently being pointed at
 let startPlace: CustomGroup | null = null; // The first sphere selected when drawing a line
 let endPlace: CustomGroup | null = null; // The second sphere selected when drawing a line
 const controllers: THREE.Group[] = [];
-let lastGenerationTime = Date.now();
+let lastGenerationTime: number;
 const WIDTH = 64;
 const PARTICLES = WIDTH * WIDTH;
 let knightUniforms: any;
@@ -31,6 +32,7 @@ let textMaker: TextMaker;
 let isDragging = false;
 let gameStarted = false;
 let currentTime = 0;
+let rotator: THREE.Object3D;
 const dtAggregateBuffer = new Float32Array(PARTICLES * 4);
 const dtVelocityBuffer = new Float32Array(PARTICLES * 4);
 const dtPositionBuffer = new Float32Array(PARTICLES * 4);
@@ -39,43 +41,21 @@ const toReset: number[] = [];
 // This is a lock to prevent aggregation calculations while async unit launch is in progress
 let unitLaunchInProgress = false;
 const unitsFound = {
-  player: 0,
-  enemy: 0,
+  p: 0,
+  e: 0,
 };
 const trees: CustomGroup[] = [];
+let difficulty = 0;
+let controllerLock: null | number = null;
+let lastRotationTime = 0;
 
-const {
-  Texture,
-  Scene,
-  Color,
-  PerspectiveCamera,
-  IcosahedronGeometry,
-  MeshBasicMaterial,
-  Mesh,
-  WebGLRenderer,
-  // PointLight,
-  DirectionalLight,
-  // Vector3,
-  Vector2,
-  Raycaster,
-  BoxGeometry,
-  ShaderMaterial,
-  MeshStandardMaterial,
-  AudioListener,
-  PositionalAudio,
-  SphereGeometry,
-  Matrix4,
-  CylinderGeometry,
-  Group,
-} = THREE;
-
-class CustomGroup extends Group {
-  ud: any = {};
+class CustomGroup extends THREE.Group {
+  u: any = {};
 }
 
-function fillTextures(texturePosition: THREE.DataTexture, textureVelocity: THREE.DataTexture) {
-  const posArray = texturePosition.image.data;
-  const velArray = textureVelocity.image.data;
+function fillTextures(tP: THREE.DataTexture, tV: THREE.DataTexture) {
+  const posArray = tP.image.data;
+  const velArray = tV.image.data;
 
   // velocityTexture.w is target castle
 
@@ -109,20 +89,12 @@ function initComputeRenderer() {
   const dtAggregate = gpuCompute.createTexture();
   fillTextures(dtPosition, dtVelocity);
 
-  velocityVariable = gpuCompute.addVariable(
-    "textureVelocity",
-    computeVelocity,
-    dtVelocity,
-    dtVelocityBuffer,
-  );
-  positionVariable = gpuCompute.addVariable(
-    "texturePosition",
-    computePosition,
-    dtPosition,
-    dtPositionBuffer,
-  );
+  velocityVariable = gpuCompute.addVariable("tV", computeVelocity, dtVelocity, dtVelocityBuffer);
+  (velocityVariable.material as any).uniforms.d = { value: 3 };
+
+  positionVariable = gpuCompute.addVariable("tP", computePosition, dtPosition, dtPositionBuffer);
   aggregateVariable = gpuCompute.addVariable(
-    "textureAggregate",
+    "tA",
     computeAggregate,
     dtAggregate,
     dtAggregateBuffer,
@@ -139,7 +111,7 @@ function initComputeRenderer() {
   }
 }
 
-function gradientTexture() {
+function gradientTexture(color1: string, color2: string, color3: string) {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
   canvas.height = 256;
@@ -151,45 +123,55 @@ function gradientTexture() {
 
   const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
 
-  gradient.addColorStop(0.1, "#000833");
-  gradient.addColorStop(0.6, "#01235E");
-  gradient.addColorStop(0.7, "#01418F");
-  gradient.addColorStop(0.9, "#005AB4");
+  gradient.addColorStop(0.5, color1);
+  gradient.addColorStop(0.51, color2);
+  gradient.addColorStop(1.0, color3);
+
+  // gradient.addColorStop(0.5, ");
+  // gradient.addColorStop(0.51, "#03123B");
+  // gradient.addColorStop(1.0, "#03123B");
+  // gradient.addColorStop(0.9, "#005AB4");
 
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
 
-  const texture = new Texture(canvas);
+  const texture = new THREE.Texture(canvas);
   texture.needsUpdate = true;
   return texture;
 }
 
 const init = async () => {
   // Create a scene
-  const scene = new Scene();
-  scene.background = new Color(0x505050);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x505050);
 
-  const playerColor = new Color(0x266f56);
-  const enemyColor = new Color(0xc52f34);
-  const selectedColor = new Color(0xff0000);
+  const pColor = new THREE.Color(0x00ff99);
+  const eColor = new THREE.Color(0xc52f34);
+  const selectedColor = new THREE.Color(0xffa500);
+  // const selectedColor = pColor.clone().offsetHSL(0, 0.1, 0.5); //new THREE.Color(0xff0000);
 
   // Create a camera
-  const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 200);
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 200);
   camera.position.set(0, 6, -10);
 
-  const stats = new Stats();
-  drawCallPanel = stats.addPanel(new Stats.Panel("DRAWCALL", "#0ff", "#002"));
-  document.body.appendChild(stats.dom);
+  rotator = new THREE.Object3D();
+  rotator.add(camera);
+  scene.add(rotator);
+
+  // const stats = new Stats();
+  // drawCallPanel = stats.addPanel(new Stats.Panel("DRAWCALL", "#0ff", "#002"));
+  // document.body.appendChild(stats.dom);
 
   // Gradient background for an icosahedron
-  const gradTexture = gradientTexture();
-  const gradMaterial = new MeshBasicMaterial({
+  const gradTexture = gradientTexture("#000833", "#03123B", "#03123B");
+  const gradMaterial = new THREE.MeshBasicMaterial({
     map: gradTexture,
     side: THREE.BackSide,
-    depthWrite: false,
+    "depthWrite": false,
+    // wireframe: true,
   });
-  const gradGeometry = new IcosahedronGeometry(100, 2);
-  const gradMesh = new Mesh(gradGeometry, gradMaterial);
+  const gradGeometry = new THREE.IcosahedronGeometry(100, 3);
+  const gradMesh = new THREE.Mesh(gradGeometry, gradMaterial);
   scene.add(gradMesh);
 
   // const helper = new CameraHelper(camera);
@@ -199,7 +181,7 @@ const init = async () => {
   // const light = new PointLight(0xffffff, 10, 100);
   // light.position.set(0, 0, 0);
   // scene.add(light);
-  const directionalLight = new DirectionalLight(0xffffff, 1.1);
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 1.1);
   directionalLight.position.set(0, 1, 1);
   // directionalLight.castShadow = true;
   scene.add(directionalLight);
@@ -207,33 +189,30 @@ const init = async () => {
   scene.add(ambientLight);
 
   // Create a renderer.
-  // TODO Opportunity to gain some bytes by using the default canvas
-  const canvas = document.getElementById("c") as HTMLCanvasElement;
-  if (!canvas) {
-    throw new Error("Could not find canvas element");
-  }
-  renderer = new WebGLRenderer({
+  renderer = new THREE.WebGLRenderer({
     antialias: true,
     powerPreference: "high-performance",
-    canvas,
   });
   // renderer.shadowMap.enabled = true;
   renderer.xr.enabled = true;
   const xrManager = new XRmanager(renderer);
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
+  renderer["setPixelRatio"](window.devicePixelRatio);
+  renderer["setSize"](window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer["domElement"]);
 
   // Add orbit controller
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.autoRotate = true;
+  const controls = new OrbitControls(camera, renderer["domElement"]);
+  controls["autoRotate"] = true;
   // Resize the canvas on window resize
-  window.addEventListener("resize", function () {
+  const adjustAspect = () => {
     const width = window.innerWidth;
     const height = window.innerHeight;
     renderer.setSize(width, height);
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
+    camera["aspect"] = width / height;
+    camera["updateProjectionMatrix"]();
+  };
+  window.addEventListener("resize", function () {
+    adjustAspect();
   });
 
   function stretchLineBetweenPoints(line: THREE.Mesh, start: THREE.Vector3, end: THREE.Vector3) {
@@ -251,10 +230,10 @@ const init = async () => {
     // Rotate 90 degrees around X-axis to align the cube's top face with the forward direction
     const alignmentRotation = new THREE.Matrix4().makeRotationX(Math.PI / 2);
     orientation.multiply(alignmentRotation);
-    line.applyMatrix4(orientation);
+    line["applyMatrix4"](orientation);
 
     // Apply the scaling to the Y dimension
-    line.scale.setY(length);
+    line.scale["setY"](length);
 
     // After scaling, we then set the position.
     // This order ensures the cube isn't prematurely moved before the scaling is done.
@@ -264,9 +243,9 @@ const init = async () => {
 
   // Create the indicator line
   // Use a cube for now
-  const lineGeometry = new BoxGeometry(0.1, 1.0, 0.1);
-  const lineMaterial = new MeshBasicMaterial({ color: playerColor });
-  const line = new Mesh(lineGeometry, lineMaterial);
+  const lineGeometry = new THREE.BoxGeometry(0.1, 1.0, 0.1);
+  const lineMaterial = new THREE.MeshBasicMaterial({ "color": pColor });
+  const line = new THREE.Mesh(lineGeometry, lineMaterial);
   line.visible = false;
   scene.add(line);
 
@@ -276,20 +255,16 @@ const init = async () => {
   canopyGeometry.translate(0, 0.5, 0);
   const trunkGeometry = new THREE.CylinderGeometry(0, 0.5, 1, 4, 1);
   trunkGeometry.translate(0, 0.5, 0);
-  const vertexReplacement = `
-        vec3 transformed = vec3(position);
-        transformed.x += sin(position.y * 10.0 + time + float(gl_InstanceID)) * 0.1;
-        transformed.z += cos(position.y * 10.0 + time + float(gl_InstanceID)) * 0.1;
-      `;
+  const vertexReplacement = `vec3 transformed = vec3(position);transformed.x += sin(position.y * 10.0 + time + float(gl_InstanceID)) * 0.1;transformed.z += cos(position.y * 10.0 + time + float(gl_InstanceID)) * 0.1;`;
   const canopyMaterial = new THREE.MeshStandardMaterial({
     color: 0x00ff00,
-    side: THREE.DoubleSide,
+    "side": THREE.DoubleSide,
   });
   canopyMaterial.onBeforeCompile = (shader) => {
-    shader.uniforms.time = { value: 0 };
-    shader.vertexShader = "uniform float time;\n" + shader.vertexShader;
+    shader.uniforms["time"] = { value: 0 };
+    shader["vertexShader"] = "uniform float time;\n" + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", vertexReplacement);
-    canopyMaterial.userData.shader = shader;
+    canopyMaterial["userData"].shader = shader;
   };
   const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513, side: THREE.DoubleSide });
   const rootGeometry = new THREE.BufferGeometry();
@@ -311,14 +286,14 @@ const init = async () => {
 
   const indices = [0, 1, 2, 2, 3, 0];
 
-  rootGeometry.setIndex(indices);
-  rootGeometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
-  rootGeometry.translate(0, +1, 0);
+  rootGeometry["setIndex"](indices);
+  rootGeometry["setAttribute"]("position", new THREE.BufferAttribute(vertices, 3));
+  rootGeometry["translate"](0, +1, 0);
   // rootGeometry.rotateY(-Math.PI / 2);
-  rootGeometry.computeVertexNormals();
-  rootGeometry.rotateY(Math.PI);
+  rootGeometry["computeVertexNormals"]();
+  rootGeometry["rotateY"](Math.PI);
   const rootMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513, side: THREE.DoubleSide });
-  rootMaterial.onBeforeCompile = (shader) => {
+  rootMaterial["onBeforeCompile"] = (shader) => {
     shader.uniforms.time = { value: 0 };
     shader.vertexShader = "uniform float time;\n" + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", vertexReplacement);
@@ -329,28 +304,25 @@ const init = async () => {
   const canopyInstancedMesh = new THREE.InstancedMesh(canopyGeometry, canopyMaterial, 64);
   const trunkInstancedMesh = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, 64);
   const rootsInstancedMesh = new THREE.InstancedMesh(rootGeometry, rootMaterial, 64 * 8);
-  // canopyInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  // trunkInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  // rootsInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   // To be re/used for scaling
   const treeDummy = new THREE.Group();
   const treeScale = 0.3;
 
   // Positional audio
-  const listener = new AudioListener();
+  const listener = new THREE.AudioListener();
   camera.add(listener);
 
   const createPositionalAudioPool = (listener: THREE.AudioListener) => {
-    const audio = new PositionalAudio(listener);
-    audio.setRefDistance(20);
-    audio.setVolume(0.5);
+    const audio = new THREE.PositionalAudio(listener);
+    audio["setRefDistance"](20);
+    audio["setVolume"](0.5);
     scene.add(audio);
     return audio;
   };
   // 8 positional audio sources, to be reused
   const positionalPool = {
-    player: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
-    enemy: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
+    p: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
+    e: [1, 2, 3, 4].map(() => createPositionalAudioPool(listener)),
   };
 
   // Logic to create random places
@@ -387,16 +359,16 @@ const init = async () => {
     for (let i = 0; i < 8; i++) {
       const idx = n === 1 ? index : index * 8 + i;
       if (type === "r") {
-        part.matrix.copy(tree.ud.r[i]);
+        part.matrix.copy(tree.u.r[i]);
       } else {
-        part.matrix.copy(tree.ud[type]);
+        part.matrix.copy(tree.u[type]);
       }
       // mesh.getMatrixAt(idx, part.matrix);
       part.matrix.decompose(part.position, part.quaternion, part.scale);
-      tree.setRotationFromAxisAngle(new THREE.Vector3(1, 0, 0), rotation);
+      tree["setRotationFromAxisAngle"](new THREE.Vector3(1, 0, 0), rotation);
       baseOfTrunk.scale.set(scale * t * sX, scale * t * sY, scale * t * sZ);
-      part.updateWorldMatrix(true, true);
-      mesh.setMatrixAt(idx, part.matrixWorld);
+      part["updateWorldMatrix"](true, true);
+      mesh.setMatrixAt(idx, part["matrixWorld"]);
       mesh.instanceMatrix.needsUpdate = true;
     }
   }
@@ -419,21 +391,18 @@ const init = async () => {
 
     const position = sphericalToCartesian(radius, polar, azimuthal);
 
-    const place = createPlace() as CustomGroup;
+    const place = createPlace(i === 0 ? 0 : i === sphereCount - 1 ? 1 : undefined) as CustomGroup;
 
     scene.add(place);
-    const material = new MeshStandardMaterial({
-      opacity: 0.5,
-      transparent: false,
-      //side: THREE.DoubleSide,
-    });
+    const material = new THREE.MeshBasicMaterial();
 
     places.push(place);
     // Random position in the scene
     place.position.copy(position);
-    const placeSphere = new Mesh(new SphereGeometry(place.ud.size / 10.0), material);
+    const placeSphere = new THREE.Mesh(new THREE.SphereGeometry(place.u["size"] / 10.0), material);
     placeSphere.position.copy(place.position.clone());
     placeSpheres.push(placeSphere);
+    place.u.sphere = placeSphere;
     placeSphere.visible = false;
     scene.add(placeSphere);
 
@@ -442,47 +411,41 @@ const init = async () => {
     tree.position.copy(place.position);
     trees.push(tree);
     const dummy = new THREE.Object3D();
-    canopyInstancedMesh.setMatrixAt(i, dummy.matrix);
-    tree.ud.c = dummy.matrix.clone();
+    canopyInstancedMesh["setMatrixAt"](i, dummy.matrix);
+    tree["u"]["c"] = dummy.matrix.clone();
     trunkInstancedMesh.setMatrixAt(i, dummy.matrix);
-    tree.ud.t = dummy.matrix.clone();
-    // const yOffset = 0.2;
-    // dummy.position.y += yOffset;
-    // dummy.scale.set(treeScale, treeScale, treeScale);
-    // dummy.updateMatrix();
+    tree.u["t"] = dummy.matrix.clone();
 
     // Air roots
     const rndScale = 1.5;
-    tree.ud.r = [];
+    tree.u["r"] = [];
     for (let j = 0; j < 8; j++) {
-      dummy.matrix.identity().decompose(dummy.position, dummy.quaternion, dummy.scale);
-      // dummy.position.copy(place.position);
+      dummy["matrix"]["identity"]()["decompose"](dummy.position, dummy.quaternion, dummy.scale);
       dummy.position.x += Math.random() * rndScale * 30 - 0.5 * rndScale * 30;
       dummy.position.z += Math.random() * rndScale - 0.5 * rndScale;
-      // dummy.position.y += yOffset;
-      // dummy.scale.set(0.03 * treeScale, 0.5 * treeScale, 1 * treeScale);
-      // dummy.rotateY((Math.PI / 4) * j);
-      dummy.updateMatrix();
-      tree.ud.r.push(dummy.matrix.clone());
-      rootsInstancedMesh.setMatrixAt(i * 8 + j, dummy.matrix);
+      dummy["updateMatrix"]();
+      tree.u.r.push(dummy.matrix.clone());
+      rootsInstancedMesh["setMatrixAt"](i * 8 + j, dummy.matrix);
     }
-    place.ud.i = i;
+    place.u.i = i;
 
     if (i === 0) {
-      place.ud.owner = "player";
-      place.ud.color = playerColor;
+      place.u.owner = "p";
+      place.u.color = pColor;
+      place.u.troops = 100;
       setTreeScaleAndRotation(i, 1);
-      place.ud.scale = 1;
+      place.u.scale = 1;
     } else if (i === sphereCount - 1) {
-      place.ud.owner = "enemy";
-      place.ud.color = enemyColor;
+      place.u.owner = "e";
+      place.u.troops = 100;
+      place.u.color = eColor;
       setTreeScaleAndRotation(i, 0);
     } else {
-      place.ud.color = new Color(0xffffff); // White
+      place.u.color = new THREE.Color(0xffffff); // White
       setTreeScaleAndRotation(i, 0);
     }
 
-    setColorForAllChildren(place, place.ud.color); // Set the color for all children (towers and main building
+    setColorForAllChildren(place, place.u.color); // Set the color for all children (towers and main building
   }
   // canopyInstancedMesh.castShadow = true;
   scene.add(canopyInstancedMesh);
@@ -496,32 +459,39 @@ const init = async () => {
   scene.add(textMaker.instancedMesh);
 
   function createTextSprite(message: string, followCameraRotation = false, followCamera = false) {
-    const text = textMaker.addText(message, new Color(0xfff), followCameraRotation, followCamera);
+    const text = textMaker.addText(
+      message,
+      new THREE.Color(0xfff),
+      followCameraRotation,
+      followCamera,
+    );
     return text;
   }
   const xrSupport = await navigator.xr?.isSessionSupported("immersive-vr");
   const text = xrSupport ? "Play in VR" : `Play`;
 
-  // render();
-
   // Update the pointing ray
   // Update function to detect sphere pointing
   function updatePointing() {
     if (!controllers[0]) return [];
-    const intersects = intersectsFromController();
+    let intersects = [];
+    if (controllerLock === null) {
+      intersects = [...intersectsFromController(0), ...intersectsFromController(1)];
+    } else {
+      intersects = intersectsFromController(controllerLock);
+    }
     handlePointingMoving(intersects);
   }
 
-  function intersectsFromController(): THREE.Intersection[] {
-    const controller = controllers[0];
-    // for (const controller of controllers) {
-    const tempMatrix = new Matrix4();
-    controller.updateMatrixWorld();
-    tempMatrix.identity().extractRotation(controller.matrixWorld);
+  function intersectsFromController(i: number): THREE.Intersection[] {
+    const controller = controllers[i];
+    const tempMatrix = new THREE.Matrix4();
+    controller["updateMatrixWorld"]();
+    tempMatrix.identity()["extractRotation"](controller.matrixWorld);
 
-    const ray = new Raycaster();
-    ray.camera = camera;
-    ray.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+    const ray = new THREE.Raycaster();
+    ray["camera"] = camera;
+    ray["ray"].origin["setFromMatrixPosition"](controller.matrixWorld);
     ray.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
     return ray.intersectObjects(placeSpheres);
@@ -531,18 +501,18 @@ const init = async () => {
     if (intersects.length > 0) {
       event?.preventDefault();
       const index = placeSpheres.indexOf(intersects[0].object);
-      // console.log("index", index);
+      console.log("index", index);
       const place = places[index] as CustomGroup;
       if (place) {
         setColorForAllChildren(place, selectedColor);
       }
       if (startPlace && place !== startPlace) {
-        setColorForAllChildren(place, selectedColor);
+        setColorForAllChildren(place, startPlace.u.color);
         stretchLineBetweenPoints(line, startPlace.position, place.position);
       }
       if (endPlace !== place) {
         if (endPlace) {
-          setColorForAllChildren(endPlace, endPlace.ud.color);
+          setColorForAllChildren(endPlace, endPlace.u.color);
         }
         endPlace = place;
       }
@@ -550,9 +520,9 @@ const init = async () => {
       // hide the line
       line.visible = false;
       if (endPlace) {
-        setColorForAllChildren(endPlace, endPlace.ud.color);
+        setColorForAllChildren(endPlace, endPlace.u.color);
       }
-      console.log("no start intersect");
+      // console.log("no start intersect");
     }
   }
 
@@ -564,14 +534,15 @@ const init = async () => {
     if (intersects.length > 0) {
       event?.preventDefault();
       const place = places[placeSpheres.indexOf(intersects[0].object)];
-      // if (place.ud.owner === "player") {
-      controls.enabled = false;
-      startPlace = place as CustomGroup;
-      isDragging = true;
-      // }
-    } else {
-      console.log("no start intersect");
+      if (place.u.owner === "p") {
+        controls.enabled = false;
+        startPlace = place as CustomGroup;
+        isDragging = true;
+      }
     }
+    // else {
+    //   // console.log("no start intersect");
+    // }
   }
 
   function handleClickOrTriggerEnd(
@@ -588,10 +559,10 @@ const init = async () => {
     controls.enabled = true;
     // Reset
     if (startPlace) {
-      setColorForAllChildren(startPlace, startPlace.ud.color);
+      setColorForAllChildren(startPlace, startPlace.u.color);
     }
     if (endPlace) {
-      setColorForAllChildren(endPlace, endPlace.ud.color);
+      setColorForAllChildren(endPlace, endPlace.u.color);
     }
     startPlace = null;
     endPlace = null;
@@ -600,42 +571,38 @@ const init = async () => {
   }
 
   function setColorForAllChildren(object: THREE.Group, color: THREE.Color) {
-    object.traverse((child) => {
-      if (child instanceof Mesh) {
+    object["traverse"]((child) => {
+      if (child instanceof THREE.Mesh) {
         const material = child.material as THREE.MeshStandardMaterial;
         material.emissive.copy(color);
         material.color.copy(color);
-        material.emissiveIntensity = 0.1;
+        material["emissiveIntensity"] = 0.1;
       }
     });
   }
   function updateTroopsDisplay(place: CustomGroup, troopsCount: number) {
     const intensity = Math.min(1, troopsCount / 100);
-    if (place.ud.troopsDisplay) {
+    if (place.u.troopsDisplay) {
       // The higher the number of troops, the closer the color should be
       // to the owner's color
-      // place.ud.shield.morphTargetInfluences[0] = 0.5 + 0.4 * Math.sin(troopsCount / 10);
-      place.ud.troopsDisplay.updateText(
+      // place.u.shield.morphTargetInfluences[0] = 0.5 + 0.4 * Math.sin(troopsCount / 10);
+      place.u.troopsDisplay["updateText"](
         troopsCount.toString(),
-        new Color(
-          place.ud.color.r * intensity,
-          place.ud.color.g * intensity,
-          place.ud.color.b * intensity,
+        new THREE.Color(
+          place.u.color["r"] * intensity,
+          place.u.color["g"] * intensity,
+          place.u.color["b"] * intensity,
         ),
       );
-      place.ud.troopsDisplay.setScale(Math.min(1 + troopsCount / 100, 2));
+      place.u.troopsDisplay.setScale(Math.min(1 + troopsCount / 100, 2));
     } else {
-      place.ud.troopsDisplay = createTextSprite(troopsCount.toString(), true);
-      place.ud.troopsDisplay.setPosition(
-        place.position.x,
-        place.position.y + 0.2,
-        place.position.z,
-      );
+      place.u.troopsDisplay = createTextSprite(troopsCount.toString(), true);
+      place.u.troopsDisplay.setPosition(place.position.x, place.position.y + 0.2, place.position.z);
     }
     // Also reflect troop numbers in tree size
-    if (place.ud.owner === "player") {
+    if (place.u.owner === "p") {
       setTreeScaleAndRotation(
-        place.ud.i,
+        place.u.i,
         Math.min(1, troopsCount / 100),
         // Math.sin(new Date().getTime() / 1000) * 0.5 + 0.5,
       );
@@ -643,14 +610,14 @@ const init = async () => {
   }
 
   function generateTroops(castle: CustomGroup, timeDelta: number) {
-    const sizeFactor = castle.ud.size; // Simple size measure
-    // TODO temp player adv
-    if (castle.ud.owner === "player") {
-      castle.ud.troops += sizeFactor * timeDelta * 0.001;
-    } else if (castle.ud.owner === "enemy") {
-      castle.ud.troops += sizeFactor * timeDelta * 0.001;
+    const sizeFactor = castle.u.size; // Simple size measure
+    // TODO temp p adv
+    if (castle.u.owner === "p") {
+      castle.u.troops += sizeFactor * timeDelta * 0.001;
+    } else if (castle.u.owner === "e") {
+      // castle.u.troops += sizeFactor * timeDelta * 0.001;
     }
-    updateTroopsDisplay(castle, Math.floor(castle.ud.troops));
+    updateTroopsDisplay(castle, Math.floor(castle.u.troops));
   }
 
   function updateTroops() {
@@ -659,7 +626,7 @@ const init = async () => {
     for (const castle of places) {
       generateTroops(
         castle as CustomGroup,
-        (castle as CustomGroup).ud.owner ? now - lastGenerationTime : 0,
+        (castle as CustomGroup).u.owner ? now - lastGenerationTime : 0,
       );
     }
     lastGenerationTime = now;
@@ -687,9 +654,8 @@ const init = async () => {
       console.log("unitLaunchInProgress");
       return;
     }
-
-    unitsFound.enemy = 0;
-    unitsFound.player = 0;
+    unitsFound["e"] = 0;
+    unitsFound["p"] = 0;
 
     for (let i = 0; i < dataAgg.length; i += 4) {
       // Check if the ship has collided
@@ -697,168 +663,143 @@ const init = async () => {
         // The ship has collided
         const place = places[Math.floor((-dataAgg[i + 3] - 0.5) * WIDTH)] as CustomGroup;
         // Deduct points from the castle or perform other actions
-        const shipOwner = dataAgg[i + 1] < 0.6005 ? "player" : "enemy"; // 0.6 is player, 0.601 is enemy
+        const shipOwner = dataAgg[i + 1] < 0.6005 ? "p" : "e"; // 0.6 is p, 0.601 is e
         if (place) {
           playRandomSoundAtPosition(shipOwner, place.position, positionalPool);
-          if (!place.ud.owner || place.ud.owner !== shipOwner) {
-            place.ud.troops -= 1;
+          if (!place.u.owner || place.u.owner !== shipOwner) {
+            place.u.troops -= 1;
 
-            if (place.ud.troops <= 0) {
+            if (place.u.troops <= 0) {
               // The castle has been conquered
-              place.ud.troops = 1;
-              place.ud.owner = shipOwner;
-              place.ud.color = shipOwner === "player" ? playerColor : enemyColor;
-              setColorForAllChildren(place as THREE.Group, place.ud.color);
+              place.u.troops = 1;
+              place.u.owner = shipOwner;
+              place.u.color = shipOwner === "p" ? pColor : eColor;
+              setColorForAllChildren(place as THREE.Group, place.u.color);
 
               // Set target rotation
               // We will lerp towards this each frame, orientation is used for ownership graphics
 
               // Target rotation is PI left or PI right, depending on who the new owner is
-              place.ud.targetRotation += shipOwner === "player" ? Math.PI : -Math.PI;
-              place.ud.targetRotation = place.ud.targetRotation % (Math.PI * 2);
-              // flips[place.id] = flips[place.id] ? flips[place.id] + 1 : 1;
+              place.u.targetRotation += shipOwner === "p" ? Math.PI : -Math.PI;
+              place.u.targetRotation = place.u.targetRotation % (Math.PI * 2);
             }
           } else {
-            // If the end place is owned by the same player, add troops
-            place.ud.troops += 1;
+            // If the end place is owned by the same p, add troops
+            place.u.troops += 1;
           }
         }
 
         toReset.push(i);
       } else if (dataAgg[i + 3] > 0) {
         if (dataAgg[i + 1] < 0.6005 && dataAgg[i + 1] > 0.5995) {
-          unitsFound.player++;
+          unitsFound.p++;
         } else if (dataAgg[i + 1] > 0.6005 && dataAgg[i + 1] < 0.6015) {
-          unitsFound.enemy++;
+          unitsFound.e++;
         }
       }
     }
 
     // Check if the game is over
-    const planetOwners = places.map((place) => place.ud.owner);
-    const playerWon =
-      planetOwners.every((owner) => [null, "player"].includes(owner)) && unitsFound.enemy === 0;
-    const enemyWon =
-      planetOwners.every((owner) => [null, "enemy"].includes(owner)) && unitsFound.player === 0;
-    if (playerWon) {
-      console.log("Player won");
-      const text = createTextSprite("You win!");
-      // Position 2 units in front of the camera
-      text?.setPosition(camera.position.x, camera.position.y, camera.position.z - 2);
+    const planetOwners = places.map((place) => place.u.owner);
+    const pWon = planetOwners.every((owner) => [null, "p"].includes(owner)) && unitsFound.e === 0;
+    const eWon = planetOwners.every((owner) => [null, "e"].includes(owner)) && unitsFound.p === 0;
+    let gameOverText;
+    if (pWon) {
+      gameOverText = "Victory!";
+    } else if (eWon) {
+      gameOverText = "You lose. Darkness has fallen.";
+    }
+    if (gameOverText) {
       gameStarted = false;
-    } else if (enemyWon) {
-      const text = createTextSprite("Game over!");
-      console.log("Enemy won");
-      text?.setPosition(camera.position.x, camera.position.y, camera.position.z - 2);
-      gameStarted = false;
+      if (renderer.xr["isPresenting"]) {
+        xrManager.endSession();
+        adjustAspect();
+      }
+      document.getElementById("p")!.innerHTML = gameOverText;
+      togglePauseScreen();
     }
   }
 
   // This we need to do every frame
-  addComputeCallback("textureAggregate", (buffer) => {
+  addComputeCallback("tA", (buffer) => {
     checkForParticleArrivals(buffer);
     updateTroops();
   });
 
+  function handleControllers() {
+    const session = renderer.xr["getSession"]();
+    const currentTime = Date.now();
+    // If gamepad horizontal is pressed, rotate camera
+    if (session) {
+      const inputSources = session.inputSources;
+      for (let i = 0; i < inputSources.length; i++) {
+        const inputSource = inputSources[i];
+        const gamepad = inputSource.gamepad;
+        if (gamepad) {
+          const axes = gamepad.axes;
+          if (axes[2] > 0.5 && currentTime - lastRotationTime > 250) {
+            rotator.rotateY(-Math.PI / 4);
+            lastRotationTime = currentTime;
+          } else if (axes[2] < -0.5 && currentTime - lastRotationTime > 250) {
+            lastRotationTime = currentTime;
+            rotator.rotateY(Math.PI / 4);
+          }
+          textMaker.cameraRotation = rotator.rotation.y;
+        }
+      }
+    }
+  }
+
   // Animation loop
   function render(time: number) {
-    controls.update();
+    controls["update"]();
     const delta = time - currentTime;
     currentTime = time;
+
+    handleControllers();
     if (gameStarted) {
+      lastGenerationTime = lastGenerationTime || Date.now();
       gpuCompute.compute(computeCallbacks);
 
-      const texturePosition = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
-      const textureVelocity = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
+      const tP = gpuCompute.getCurrentRenderTarget(positionVariable)["texture"];
+      const tV = gpuCompute.getCurrentRenderTarget(velocityVariable)["texture"];
 
-      knightUniforms["texturePosition"].value = texturePosition;
-      knightUniforms["textureVelocity"].value = textureVelocity;
+      knightUniforms["tP"].value = tP;
+      knightUniforms["tV"].value = tV;
 
       updatePointing();
 
       for (const place of places) {
         const lerpSpeed = delta / 1200;
-        const distance = place.ud.targetRotation - place.rotation.x;
+        const distance = place.u.targetRotation - place.rotation.x;
         if (Math.abs(distance) > 0.01) {
-          // When rotation is 0, e.g. player takes place then AI takes it back
+          // When rotation is 0, e.g. p takes place then AI takes it back
           // we need to invert the morph target.
-          const invert = place.ud.targetRotation === 0;
+          const invert = place.u.targetRotation === 0;
           place.rotation.x += distance * lerpSpeed;
 
-          const desiredMorphState = (place.ud.owner === "player" ? 1 : 0) ^ +invert;
+          const desiredMorphState = (place.u.owner === "p" ? 1 : 0) ^ +invert;
           const morphSpeed =
-            (desiredMorphState - place.ud.shield.morphTargetInfluences[0]) * lerpSpeed;
-          place.ud.shield.morphTargetInfluences[0] += morphSpeed;
-          place.ud.shield.morphTargetInfluences[0] = Math.min(
-            Math.max(place.ud.shield.morphTargetInfluences[0], 0),
+            (desiredMorphState - place.u.shield.morphTargetInfluences[0]) * lerpSpeed;
+          place.u.shield.morphTargetInfluences[0] += morphSpeed;
+          place.u.shield.morphTargetInfluences[0] = Math.min(
+            Math.max(place.u.shield.morphTargetInfluences[0], 0),
             1,
           );
 
-          if (place.ud.owner === "player") {
-            place.ud.scale = ((1 - Math.abs(distance / Math.PI)) * place.ud.troops) / 100;
-          } else if (place.ud.owner === "enemy") {
-            place.ud.scale = place.ud.scale - lerpSpeed;
+          if (place.u.owner === "p") {
+            place.u.scale = ((1 - Math.abs(distance / Math.PI)) * place.u.troops) / 100;
+          } else if (place.u.owner === "e") {
+            place.u.scale = 0; // place.u.scale - lerpSpeed;
           }
-          place.ud.scale = Math.min(Math.max(place.ud.scale, 0), 1);
-          setTreeScaleAndRotation(place.ud.i, place.ud.scale, place.rotation.x + Math.PI);
+          place.u.scale = Math.min(Math.max(place.u.scale, 0), 1);
+          setTreeScaleAndRotation(
+            place.u.i,
+            place.u.scale,
+            place.rotation.x + place.u.targetRotation,
+          );
         }
       }
-      // Check if there are places to flip (signifying being conquered)
-      // A flip consists of a 180 degree rotation around the x axis
-      // and of a scaling up or down the Banyan tree, depending on who
-      // the new owner is
-      // const flipIds = Object.keys(flips).map(Number);
-      // for (const placeId of flipIds) {
-      //   const place = places.find((place) => place.id === placeId);
-      //   if (place) {
-      //     const index = places.indexOf(place);
-      //     // Scale the Banyan tree down if the new owner is the enemy
-      //     const influenceDirection = place.ud.owner === "enemy" ? -1 : 1;
-
-      //     place.ud.scale =
-      //       place.ud.owner === "enemy"
-      //         ? Math.max(place.ud.scale - delta / 1200, 0)
-      //         : ((1 - (flips[place.id] % 1)) * place.ud.troops) / 100;
-
-      //     place.rotation.x += Math.PI * (delta / 1200);
-      //     place.ud.shield.morphTargetInfluences[0] = Math.min(
-      //       Math.max(
-      //         place.ud.shield.morphTargetInfluences[0] + (influenceDirection * delta) / 1200,
-      //         0,
-      //       ),
-      //       1,
-      //     );
-      //     console.log("place.ud.scale", place.ud.scale);
-      //     console.log(
-      //       "place.ud.shield.morphTargetInfluences[0]",
-      //       place.ud.shield.morphTargetInfluences[0],
-      //     );
-
-      //     // if (place.ud.owner === "enemy") {
-      //     //   if (place.ud.scale > 0.0) {
-      //     //     place.ud.scale -= delta / 1200;
-      //     //   }
-      //     // } else {
-      //     //   if (place.ud.scale < 1.0) {
-      //     //     place.ud.scale = ((1 - (flips[place.id] % 1)) * place.ud.troops) / 100;
-      //     //   }
-      //     // }
-
-      //     // place.rotation.x += Math.PI * (delta / 1200);
-      //     // place.ud.shield.morphTargetInfluences[0] = Math.max(
-      //     //   Math.min(place.ud.shield.morphTargetInfluences[0] + delta / 1200, 1.0),
-      //     //   0.0,
-      //     // );
-      //     setTreeScaleAndRotation(index, place.ud.scale, place.rotation.x + Math.PI);
-
-      //     flips[place.id] -= delta / 1200;
-      //     if (flips[place.id] <= 0) {
-      //       delete flips[place.id];
-      //       // Clamp to closest 180 degrees
-      //       place.rotation.x = Math.round(place.rotation.x / (Math.PI / 2)) * (Math.PI / 2);
-      //     }
-      //   }
-      // }
     }
     if (canopyMaterial.userData.shader) {
       canopyMaterial.userData.shader.uniforms.time.value += 0.03;
@@ -867,13 +808,13 @@ const init = async () => {
       rootMaterial.userData.shader.uniforms.time.value += 0.03;
     }
     renderer.render(scene, camera);
-    drawCallPanel.update(renderer.info.render.calls, 200);
-    stats.update();
+    // drawCallPanel.update(renderer.info.render.calls, 200);
+    // stats.update();
   }
-  renderer.setAnimationLoop(render);
+  renderer["setAnimationLoop"](render);
 
-  const raycaster = new Raycaster();
-  const mouse = new Vector2();
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
 
   window.addEventListener("mousedown", onPointerDown, false);
   window.addEventListener("mousemove", onPointerMove, false);
@@ -894,8 +835,8 @@ const init = async () => {
     mouse.x = (position.x / window.innerWidth) * 2 - 1;
     mouse.y = -(position.y / window.innerHeight) * 2 + 1;
 
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(placeSpheres);
+    raycaster["setFromCamera"](mouse, camera);
+    const intersects = raycaster["intersectObjects"](placeSpheres);
 
     handleClickOrTriggerStart(intersects, event);
   }
@@ -932,134 +873,96 @@ const init = async () => {
     handleClickOrTriggerEnd(intersects, event);
   }
 
-  //
-  // MOUSE EVENTS
-  //
-  // window.addEventListener("mousedown", onDocumentMouseDown, false);
-  // window.addEventListener("mousemove", onDocumentMouseMove, false);
-  // window.addEventListener("mouseup", onDocumentMouseUp, false);
-
-  // function onDocumentMouseDown(event: MouseEvent) {
-  //   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  //   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-  //   raycaster.setFromCamera(mouse, camera);
-  //   const intersects = raycaster.intersectObjects(placeSpheres);
-
-  //   handleClickOrTriggerStart(intersects, event);
-  // }
-
-  // function onDocumentMouseMove(event: MouseEvent) {
-  //   if (!isDragging) return;
-
-  //   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  //   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-  //   raycaster.setFromCamera(mouse, camera);
-  //   const intersects = raycaster.intersectObjects(placeSpheres);
-  //   handlePointingMoving(intersects);
-  // }
-
-  // async function onDocumentMouseUp(event: MouseEvent) {
-  //   if (!isDragging) return;
-
-  //   console.log("mouse up");
-  //   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  //   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-  //   raycaster.setFromCamera(mouse, camera);
-  //   const intersects = raycaster.intersectObjects(placeSpheres);
-
-  //   handleClickOrTriggerEnd(intersects, event);
-  // }
-
   function initControllers() {
     // Handle controllers for WebXR
     for (let i = 0; i < 2; i++) {
-      const controller = renderer.xr.getController(i);
-      scene.add(controller);
+      const controller = renderer.xr["getController"](i);
+      rotator.add(controller);
 
       // Create a visual representation for the controller: a cube
-      const geometry = new BoxGeometry(0.05, 0.05, 0.1);
-      const material = new MeshStandardMaterial({ color: playerColor });
-      const cube = new Mesh(geometry, material);
+      const geometry = new THREE.BoxGeometry(0.025, 0.025, 0.2);
+      const material = new THREE.MeshStandardMaterial({ color: pColor });
+      const cube = new THREE.Mesh(geometry, material);
       controller.add(cube); // Attach the cube to the controller
 
       controllers.push(controller);
-      controller.addEventListener("selectstart", onSelectStart);
-      controller.addEventListener("selectend", onSelectEnd);
+      controller.addEventListener("selectstart", () => onSelectStart(i));
+      controller.addEventListener("selectend", () => onSelectEnd(i));
     }
   }
 
-  function onSelectStart() {
+  function onSelectStart(i: number) {
     console.log("select start");
-    const intersects = intersectsFromController();
+    const intersects = intersectsFromController(i);
     handleClickOrTriggerStart(intersects);
+    controllerLock = i;
   }
 
-  function onSelectEnd() {
+  function onSelectEnd(i: number) {
     console.log("select end", startPlace, intersectedPlace);
     endPlace = intersectedPlace;
-    const intersects = intersectsFromController();
+    const intersects = intersectsFromController(i);
     handleClickOrTriggerEnd(intersects);
+    controllerLock = null;
   }
 
-  function createPlace() {
+  function createPlace(morphTargetInfluence = 0.5) {
     const place = new CustomGroup();
     // Create shield with random sizes
     // Top width should always be smaller than bottom width
     const topWidth = 1 + Math.random() * 2.0;
     const bottomWidth = 3 + Math.random() * 4.0;
-    // if (topWidth > bottomWidth) {
-    // [topWidth, bottomWidth] = [bottomWidth, topWidth];
-    // }
-    const shieldGeometry = new CylinderGeometry(bottomWidth, topWidth, 1.0, 24);
-    const shieldGeometry2 = new CylinderGeometry(topWidth, bottomWidth, 1.0, 24);
-    // const shieldGeometry = new THREE.TetrahedronGeometry(1.0);
-    // const shieldGeometry2 = new THREE.TetrahedronGeometry(5.0);
+    const shieldGeometry = new THREE.CylinderGeometry(bottomWidth, topWidth, 1.0, 24);
+    const shieldGeometry2 = new THREE.CylinderGeometry(topWidth, bottomWidth, 1.0, 24);
 
     // Add a morph target
-    shieldGeometry.morphAttributes.position = [];
-    shieldGeometry.morphAttributes.normal = [];
-    shieldGeometry.morphAttributes.position[0] = shieldGeometry2.attributes.position;
-    shieldGeometry.morphAttributes.normal[0] = shieldGeometry2.attributes.normal;
+    shieldGeometry["morphAttributes"].position = [];
+    shieldGeometry["morphAttributes"].normal = [];
+    shieldGeometry["morphAttributes"].position[0] = shieldGeometry2.attributes.position;
+    shieldGeometry["morphAttributes"].normal[0] = shieldGeometry2.attributes.normal;
 
-    const shieldMaterial = new MeshStandardMaterial({ color: playerColor });
-    const shield = new Mesh(shieldGeometry, shieldMaterial);
+    const shieldMaterial = new THREE.MeshStandardMaterial({ color: pColor });
+
+    const shield = new THREE.Mesh(shieldGeometry, shieldMaterial);
     // shield.receiveShadow = true;
-    shield.morphTargetInfluences![0] = 0.5;
+    shield["morphTargetInfluences"]![0] = morphTargetInfluence;
 
     shield.position.set(0, 0.0, 0);
     // shield.rotation.set(Math.PI / 2, 0, 0);
     place.add(shield);
-    shieldGeometry.computeBoundingSphere();
-    place.ud = place.userData;
-    place.ud.size = shieldGeometry.boundingSphere?.radius;
+    shieldGeometry["computeBoundingSphere"]();
+    place.u = place["userData"];
+    place.u.size = shieldGeometry["boundingSphere"]
+      ? shieldGeometry["boundingSphere"]["radius"]
+      : 0;
     // Initial troops
-    place.ud.troops = Math.floor(Math.random() * place.ud.size * 10);
+    place.u.troops = Math.floor(Math.random() * place.u.size * 10);
     // Initial owner
-    place.ud.owner = null;
-    place.ud.scale = 0.0;
-    place.ud.targetRotation = 0.0;
-    place.ud.shield = shield;
+    place.u.owner = null;
+    place.u.scale = 0.0;
+    place.u.targetRotation = 0.0;
+    place.u.shield = shield;
     place.scale.set(0.1, 0.1, 0.1);
     return place;
   }
 
   async function startGame() {
+    difficulty = parseInt((document.getElementById("d")! as HTMLInputElement).value);
+    (velocityVariable.material as any).uniforms.d.value = difficulty;
     // createTextSprite("Game started!", false, true);
     if (xrSupport) {
       await xrManager.startSession();
-      const ref = renderer.xr.getReferenceSpace();
+      // const ref = renderer.xr.getReferenceSpace();
 
       initControllers();
     }
     const music = new Music();
     music.start();
 
-    document.getElementById("s")?.remove();
+    // document.getElementById("s")?.remove();
+    document.getElementById("i")?.remove();
     controls.autoRotate = false;
     gameStarted = true;
-    // TODO
     window.onblur = () => {
       gameStarted = false;
       togglePauseScreen();
@@ -1068,7 +971,7 @@ const init = async () => {
       gameStarted = true;
       togglePauseScreen();
     };
-    // window.onbeforeunload = (e) => (e.returnValue = "Game in progress");
+    // TODO!! window.onbeforeunload = (e) => (e.returnValue = "Game in progress");
     // P pauses the game
     document.addEventListener("keydown", (e) => {
       if (e.key === "p") {
@@ -1077,6 +980,32 @@ const init = async () => {
       togglePauseScreen();
     });
     (window as any).scene = scene;
+
+    // Simple AI sends attacks high priority targets and low resistance targets
+    setInterval(
+      () => {
+        // Random e owned castle
+        const eCastles = places.filter((p) => p.u.owner === "e");
+        const otherCastles = places.filter((p) => !eCastles.includes(p));
+        // const pCastles = places.filter((p) => p.u.owner === "p");
+
+        // Sort by a combination of size and troops, giving priority to larger places with fewer troops.
+        const highValueTargets = otherCastles.sort(
+          (a, b) => b.u.size / (b.u.troops + 1) - a.u.size / (a.u.troops + 1),
+        );
+        const startPlace = eCastles[Math.floor(Math.random() * eCastles.length)];
+        // Prioritize attacking places based priority, but attack random ones based on level
+        const randomness = Math.random() < difficulty / 3;
+        const endPlace = randomness
+          ? highValueTargets[0]
+          : otherCastles[Math.floor(Math.random() * otherCastles.length)];
+
+        if (startPlace && endPlace && startPlace !== endPlace) {
+          sendFleetFromPlaceToPlace(startPlace, endPlace);
+        }
+      },
+      1005000 - difficulty * 1000,
+    );
   }
   function togglePauseScreen() {
     lastGenerationTime = Date.now();
@@ -1084,33 +1013,28 @@ const init = async () => {
     document.getElementById("p")!.style.display = style;
   }
 
+  const cont = document.getElementById("x");
+  cont?.addEventListener("click", () => {
+    document.getElementById("s")!.style.display = "none";
+    document.getElementById("i")!.style.display = "block";
+  });
+
   const button = document.getElementById("b");
   if (button) {
     button.innerHTML = text;
     button.addEventListener("click", startGame);
   }
-  const helpButton = document.getElementById("i");
-  helpButton?.addEventListener("click", () => {
-    document.getElementById("s")!.innerHTML = `
-      The islands you've healed are green.
-      Use the mouse to drag and drop the seeds of the Banyan trees from one island to another.`;
-  });
 
   function initKnights() {
-    // const baseGeometry = new THREE.PlaneGeometry(0.1, 0.1);
-    // const baseGeometry = new THREE.BoxGeometry(0.2, 0.2, 2.0);
-    // const baseGeometry = new THREE.TetrahedronGeometry(0.1);
-    // const baseGeometry = new THREE.TorusGeometry(0.4, 0.4, 9, 9);
     const baseGeometry = new THREE.CylinderGeometry(0.2, 0, 0.9, 4, 1);
     baseGeometry.scale(0.3, 0.3, 0.3);
-    baseGeometry.rotateX(-Math.PI / 2);
-    // baseGeometry.scale(1, 1, 5);
+    baseGeometry["rotateX"](-Math.PI / 2);
     const instancedGeometry = new THREE.InstancedBufferGeometry();
-    instancedGeometry.index = baseGeometry.index;
+    instancedGeometry["index"] = baseGeometry["index"];
     instancedGeometry.attributes.position = baseGeometry.attributes.position;
     instancedGeometry.attributes.uv = baseGeometry.attributes.uv;
 
-    instancedGeometry.instanceCount = PARTICLES;
+    instancedGeometry["instanceCount"] = PARTICLES;
     const uvs = new Float32Array(PARTICLES * 2);
     let p = 0;
 
@@ -1123,13 +1047,13 @@ const init = async () => {
 
     instancedGeometry.setAttribute("dtUv", new THREE.InstancedBufferAttribute(uvs, 2));
     knightUniforms = {
-      texturePosition: { value: null },
-      textureVelocity: { value: null },
-      enemyColor: { value: enemyColor },
-      playerColor: { value: playerColor },
+      "tP": { value: null },
+      "tV": { value: null },
+      "eC": { value: eColor },
+      "pC": { value: pColor },
     };
 
-    const material = new ShaderMaterial({
+    const material = new THREE.ShaderMaterial({
       uniforms: knightUniforms,
       vertexShader: knightVertex,
       fragmentShader: knightFragment,
@@ -1137,19 +1061,19 @@ const init = async () => {
       side: THREE.DoubleSide,
     });
     const mesh = new THREE.InstancedMesh(instancedGeometry, material, PARTICLES);
-    mesh.frustumCulled = false;
+    mesh["frustumCulled"] = false;
     scene.add(mesh);
   }
 
   function sendFleetFromPlaceToPlace(startPlace: CustomGroup, endPlace: CustomGroup) {
-    addUnitsToTexture(startPlace.ud.troops / 2, startPlace, endPlace, startPlace.ud.owner);
+    addUnitsToTexture(startPlace.u.troops / 2, startPlace, endPlace, startPlace.u.owner);
   }
 
   function addUnitsToTexture(
     numberOfShips: number,
     startPlace: CustomGroup,
     endPlace: CustomGroup,
-    owner: "player" | "enemy",
+    owner: "p" | "e",
   ) {
     const targetId = places.indexOf(endPlace);
     const dtTarget = (targetId + 0.5) / WIDTH + 0.5;
@@ -1166,15 +1090,22 @@ const init = async () => {
 
       for (let i = 0; i < slots.length; i++) {
         // Ships should be spread out in the direction of the target
-        const direction = new THREE.Vector3().subVectors(endPlace.position, source);
-        direction.normalize();
+        // const direction = new THREE.Vector3().subVectors(endPlace.position, source);
         const index = slots[i];
-        posArray[index] = source.x + Math.random() * direction.x;
-        posArray[index + 1] = source.y + Math.random() * direction.y;
-        posArray[index + 2] = source.z + Math.random() * direction.z;
-        posArray[index + 3] = owner === "player" ? 0.6 : 0.601; // ship type
+        if (owner === "p") {
+          posArray[index] = source.x + (Math.random() - 0.5) * 0.1;
+          posArray[index + 1] = source.y - (Math.random() - 0.5) * 0.1;
+          posArray[index + 2] = source.z + (Math.random() - 0.5) * 0.1;
+          posArray[index + 3] = 0.6; // ship type
+        } else {
+          posArray[index] = source.x + (Math.random() - 0.5) * 0.1;
+          posArray[index + 1] = source.y + Math.random() * 0.5;
+          posArray[index + 2] = source.z + (Math.random() - 0.5) * 0.1;
+          posArray[index + 3] = 0.601; // ship type
+        }
+        // direction.normalize();
       }
-      removeComputeCallback("texturePosition", positionCallback);
+      removeComputeCallback("tP", positionCallback);
       dtPosition.needsUpdate = true;
 
       const rt = gpuCompute.getCurrentRenderTarget(positionVariable);
@@ -1185,7 +1116,7 @@ const init = async () => {
       gpuCompute.renderTexture(dtVelocity, rtv);
 
       console.log("Added units", slots.length, "to", endPlace.id, "from", source, "for", owner);
-      startPlace.ud.troops -= startPlace.ud.troops / 2;
+      startPlace.u.troops -= startPlace.u.troops / 2;
       slots.length = 0;
       unitLaunchInProgress = false;
     };
@@ -1196,7 +1127,7 @@ const init = async () => {
       dtVelocity.image.data.set(buffer);
       const velArray = dtVelocity.image.data;
       for (let i = 0; i < velArray.length; i += 4) {
-        // Only allow 1/2 of total units per player
+        // Only allow 1/2 of total units per p
         if (unitsFound[owner] + slotsFound >= PARTICLES / 2 - 64) {
           break;
         }
@@ -1219,34 +1150,12 @@ const init = async () => {
           `Only ${slotsFound} slots were found and updated. Requested ${numberOfShips}.`,
         );
       }
-      removeComputeCallback("textureVelocity", velocityCallback);
-      addComputeCallback("texturePosition", positionCallback);
+      removeComputeCallback("tV", velocityCallback);
+      addComputeCallback("tP", positionCallback);
     };
 
-    addComputeCallback("textureVelocity", velocityCallback);
+    addComputeCallback("tV", velocityCallback);
   }
-
-  // Simple AI sends random units to random castles every 5 seconds
-  // setInterval(() => {
-  //   // Random enemy owned castle
-  //   const enemyCastles = places.filter((place) => place.ud.owner && place.ud.owner !== "player");
-  //   const startPlace = enemyCastles[Math.floor(Math.random() * enemyCastles.length)] as CustomGroup;
-  //   const endPlace = places[Math.floor(Math.random() * places.length)] as CustomGroup;
-  //   if (startPlace && endPlace && startPlace !== endPlace) {
-  //     sendFleetFromPlaceToPlace(startPlace, endPlace);
-  //   }
-  // }, 50000);
-  // setInterval(() => {
-  //   // Random player owned castle
-  //   const playerCastles = places.filter((place) => place.ud.owner && place.ud.owner === "player");
-  //   const startPlace2 = playerCastles[
-  //     Math.floor(Math.random() * playerCastles.length)
-  //   ] as CustomGroup;
-  //   const endPlace2 = places[Math.floor(Math.random() * places.length)] as CustomGroup;
-  //   if (startPlace2 && endPlace2 && startPlace2 !== endPlace2) {
-  //     sendFleetFromPlaceToPlace(startPlace2, endPlace2);
-  //   }
-  // }, 516);
 };
 
 init();

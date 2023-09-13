@@ -23,6 +23,7 @@ export default class Music {
   _oscillatorPool: { oscillator: OscillatorNode; gain: GainNode }[];
   _currentOscillator: number;
   _sampleRate: number;
+  _started = false;
 
   constructor() {
     this._audioContext = new AudioContext();
@@ -45,18 +46,18 @@ export default class Music {
     this._noteCount = 0;
 
     this._notes = {
-      C: 261.63,
+      "C": 261.63,
       "C#": 277.18,
-      D: 293.66,
+      "D": 293.66,
       "D#": 311.13,
-      E: 329.63,
-      F: 349.23,
+      "E": 329.63,
+      "F": 349.23,
       "F#": 369.99,
-      G: 392.0,
+      "G": 392.0,
       "G#": 415.3,
-      A: 440.0,
+      "A": 440.0,
       "A#": 466.16,
-      B: 493.88,
+      "B": 493.88,
     };
 
     for (const note in this._notes) {
@@ -216,10 +217,8 @@ export default class Music {
   }
 
   _playRandomNote() {
-    // const freqValues = [262, 294, 330, 349, 392, 440, 494, 523].map(f => f / 2);
-
     // Play arpeggio every notes, but not on the first note
-    // Chorus on every 32th note
+    // Chorus on every 48th note
     if (this._noteCount === 0 || this._noteCount % 48 !== 0) {
       const rootNote = Object.keys(this._notes)[Math.floor(Math.random() * 12)]; // C
       const arpeggioPattern = ["12132124", "34121234", "34132312", "12314321"][
@@ -299,6 +298,10 @@ export default class Music {
   }
 
   start() {
+    if (this._started) {
+      return;
+    }
+    this._started = true;
     this._playRandomNote(); // Start the melody
     setTimeout(() => {
       this._scheduleAlignedTimeout(() => this._playKick(), 2000);

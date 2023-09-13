@@ -10,16 +10,17 @@ export interface TextInstance {
   instanceId: number;
 }
 
-const {
-  InstancedBufferAttribute,
-  DataTexture,
-  ShaderMaterial,
-  InstancedMesh,
-  PlaneGeometry,
-  RedFormat,
-  Texture,
-  Object3D,
-} = THREE;
+// const {
+//   InstancedBufferAttribute,
+//   DataTexture,
+//   ShaderMaterial,
+//   InstancedMesh,
+//   PlaneGeometry,
+//   RedFormat,
+//   Texture,
+//   Object3D,
+// } = THREE;
+
 export default class TextMaker {
   _texture: THREE.Texture;
   _instanceCount: number;
@@ -35,6 +36,10 @@ export default class TextMaker {
   _scales: number[];
   _followingCameraRotation: number[];
   _followingCamera: number[];
+  _tempQuat: THREE.Quaternion;
+  _dummy: THREE.Object3D;
+  _tempQuat2: THREE.Quaternion;
+  cameraRotation: number;
 
   constructor(characters?: string, maxCharsPerInstance?: number, maxInstances?: number) {
     this._characters = characters || DEFAULT_CHARS;
@@ -44,82 +49,66 @@ export default class TextMaker {
     this._dummies = [];
     this._scales = []; // This is an additional uniform scaling factor
     this._instanceCount = 0;
-    this._lengthsBuffer = new InstancedBufferAttribute(new Float32Array(this._maxInstances), 1);
-    this._instanceBuffer = new InstancedBufferAttribute(new Float32Array(this._maxInstances), 1);
+    this._lengthsBuffer = new THREE.InstancedBufferAttribute(
+      new Float32Array(this._maxInstances),
+      1,
+    );
+    this._instanceBuffer = new THREE.InstancedBufferAttribute(
+      new Float32Array(this._maxInstances),
+      1,
+    );
     this._maxCharsPerInstance = 128;
     this._data = new Uint8Array(this._maxCharsPerInstance * this._maxInstances);
-    this._messagesTexture = new DataTexture(
+    this._messagesTexture = new THREE.DataTexture(
       this._data,
       this._maxCharsPerInstance, // width
       this._maxInstances, // height
-      RedFormat,
+      THREE.RedFormat,
     );
     this._followingCameraRotation = [];
     this._followingCamera = [];
+    this._dummy = new THREE.Object3D();
+    this._tempQuat = new THREE.Quaternion();
+    this._tempQuat2 = new THREE.Quaternion();
+    this.cameraRotation = 0;
 
-    const textShaderMaterial: THREE.ShaderMaterial = new ShaderMaterial({
+    const textShaderMaterial: THREE.ShaderMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        t: { value: this._texture },
-        m: { value: this._messagesTexture },
+        "t": { value: this._texture },
+        "m": { value: this._messagesTexture },
         time: { value: 0 },
       },
       vertexShader,
       fragmentShader,
       depthWrite: false,
-      depthTest: false,
+      "depthTest": false,
     });
 
     textShaderMaterial.transparent = true;
     textShaderMaterial.side = THREE.DoubleSide;
-    textShaderMaterial.vertexColors = true;
+    textShaderMaterial["vertexColors"] = true;
 
     // Init the base mesh
-    const planeGeometry = new PlaneGeometry(1, 0.1); // Adjust size as needed.
+    const planeGeometry = new THREE.PlaneGeometry(1, 0.1); // Adjust size as needed.
     // Adding instanced attributes
     planeGeometry.setAttribute("length", this._lengthsBuffer);
     planeGeometry.setAttribute("instance", this._instanceBuffer);
 
-    this.instancedMesh = new InstancedMesh(planeGeometry, textShaderMaterial, this._maxInstances);
+    this.instancedMesh = new THREE.InstancedMesh(
+      planeGeometry,
+      textShaderMaterial,
+      this._maxInstances,
+    );
     this.instancedMesh.frustumCulled = false;
-    this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
     this.instancedMesh.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
-      const offset = new THREE.Vector3(0, 0, -5); // This is an example offset; adjust as needed
-
-      // Update the camera rotation
+      camera.matrixWorld.decompose(this._dummy.position, this._dummy.quaternion, this._dummy.scale);
       if (this._followingCameraRotation.length > 0) {
         for (let i = 0; i < this._followingCameraRotation.length; i++) {
-          this._dummies[this._followingCameraRotation[i]].quaternion.copy(camera.quaternion);
+          this._dummies[this._followingCameraRotation[i]].quaternion.copy(this._dummy.quaternion);
           this.updateMatrix(this._followingCameraRotation[i]);
         }
-      }
-      if (this._followingCamera.length > 0) {
-        // for (let i = 0; i < this._followingCamera.length; i++) {
-        //   if (this._dummies[this._followingCamera[i]].parent !== camera) {
-        //     //Add a test cube
-        //     const cube = new THREE.Mesh(
-        //       new THREE.BoxGeometry(1, 1, 1),
-        //       new THREE.MeshBasicMaterial({ color: 0xff0000 }),
-        //     );
-        //     cube.position.copy(offset);
-        //     scene.add(cube);
-        //     cube.parent = camera;
-        //     this._dummies[this._followingCamera[i]].position.add(offset);
-        //     camera.add(this._dummies[this._followingCamera[i]]);
-        //   }
-        //   camera.updateMatrix();
-        //   camera.updateMatrixWorld(true);
-        //   this._dummies[this._followingCamera[i]].updateMatrixWorld(true);
-        //   this.updateMatrix(
-        //     this._followingCamera[i],
-        //     this._dummies[this._followingCamera[i]].matrixWorld,
-        //   );
-        // this._dummies[this._followingCamera[i]].quaternion.copy(camera.quaternion);
-        // this._dummies[this._followingCamera[i]].position
-        // .copy(camera.position)
-        // .add(offset.applyQuaternion(camera.quaternion));
-        // this.updateMatrix(this._followingCamera[i]);
-        // }
       }
     };
   }
@@ -157,7 +146,7 @@ export default class TextMaker {
       // ctx.fillText(this._characters[i], x, y);
     }
 
-    const t = new Texture(canvas);
+    const t = new THREE.Texture(canvas);
     t.needsUpdate = true;
     return t;
   }
@@ -170,7 +159,7 @@ export default class TextMaker {
       }
     }
 
-    this._lengthsBuffer.setX(instanceId, message.length);
+    this._lengthsBuffer["setX"](instanceId, message.length);
     this._lengthsBuffer.needsUpdate = true;
     // Update scales
     const s = this._scales[instanceId] || 1;
@@ -191,12 +180,12 @@ export default class TextMaker {
     const instanceId = this._instanceCount;
     // Check if we've reached the max instance count
     if (this._instanceCount >= this._maxInstances) {
-      console.warn("Max instance count reached!");
+      console.warn(">Max");
       return null;
     }
     this._instanceCount++;
     this.instancedMesh.count = this._instanceCount;
-    this._dummies[instanceId] = new Object3D();
+    this._dummies[instanceId] = new THREE.Object3D();
     // Update the data texture
     this.updateMessageTexture(instanceId, message);
     this._instanceBuffer.setX(instanceId, instanceId);
@@ -228,8 +217,8 @@ export default class TextMaker {
     };
   }
   setColor(instanceId: number, color: THREE.Color) {
-    this.instancedMesh.setColorAt(instanceId, color);
-    if (this.instancedMesh.instanceColor) {
+    this.instancedMesh["setColorAt"](instanceId, color);
+    if (this.instancedMesh["instanceColor"]) {
       this.instancedMesh.instanceColor.needsUpdate = true;
     }
   }

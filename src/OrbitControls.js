@@ -1,3 +1,4 @@
+/* global THREE */
 // From https://github.com/mrdoob/three.js/blob/dev/examples/jsm/misc/GPUComputationRenderer.js
 // MIT license (Three.js authors): https://github.com/mrdoob/three.js/blob/dev/LICENSE
 // Adapted for use in this._project
@@ -16,25 +17,25 @@
 //   // eslint-disable-next-line no-undef
 // } = THREE;
 // eslint-disable-next-line no-undef
-const EventDispatcher = THREE.EventDispatcher;
+// const EventDispatcher = THREE.EventDispatcher;
 // eslint-disable-next-line no-undef
-const MOUSE = THREE.MOUSE;
+// const MOUSE = THREE.MOUSE;
 // eslint-disable-next-line no-undef
-const Quaternion = THREE.Quaternion;
+// const Quaternion = THREE.Quaternion;
 // eslint-disable-next-line no-undef
-const Spherical = THREE.Spherical;
+// const Spherical = THREE.Spherical;
 // eslint-disable-next-line no-undef
-const TOUCH = THREE.TOUCH;
+// const TOUCH = THREE.TOUCH;
 // eslint-disable-next-line no-undef
 // const Vector2 = THREE.Vector2;
 // eslint-disable-next-line no-undef
 // const Vector3 = THREE.Vector3;
 // eslint-disable-next-line no-undef
-const Plane = THREE.Plane;
+// const Plane = THREE.Plane;
 // eslint-disable-next-line no-undef
-const Ray = THREE.Ray;
+// const Ray = THREE.Ray;
 // eslint-disable-next-line no-undef
-const MathUtils = THREE.MathUtils;
+// const MathUtils = THREE.MathUtils;
 
 // OrbitControls performs orbiting, dollying (zooming), and panning.
 // Unlike TrackballControls, it maintains the "up" direction object.up (+Y by default).
@@ -45,9 +46,9 @@ const MathUtils = THREE.MathUtils;
 const _changeEvent = new Event({ type: "change" });
 const _startEvent = new Event({ type: "start" });
 const _endEvent = { type: "end" };
-const _ray = new Ray();
-const _plane = new Plane();
-const TILT_LIMIT = Math.cos(70 * MathUtils.DEG2RAD);
+const _ray = new THREE.Ray();
+const _plane = new THREE.Plane();
+const TILT_LIMIT = Math.cos(70 * THREE.MathUtils.DEG2RAD);
 
 const offset = new THREE.Vector3();
 
@@ -57,10 +58,10 @@ const quat = new THREE.Quaternion().setFromUnitVectors(
   new THREE.Vector3(0, 1, 0),
   new THREE.Vector3(0, 1, 0),
 );
-const quatInverse = quat.clone().invert();
+const quatInverse = quat["clone"]()["invert"]();
 
 const lastPosition = new THREE.Vector3();
-const lastQuaternion = new Quaternion();
+const lastQuaternion = new THREE.Quaternion();
 const lastTargetPosition = new THREE.Vector3();
 
 const twoPI = 2 * Math.PI;
@@ -82,8 +83,8 @@ let state = STATE._NONE;
 const EPS = 0.000001;
 
 // current position in spherical coordinates
-const spherical = new Spherical();
-const sphericalDelta = new Spherical();
+const spherical = new THREE.Spherical();
+const sphericalDelta = new THREE.Spherical();
 
 let scale = 1;
 
@@ -102,7 +103,7 @@ let performCursorZoom = false;
 const pointers = [];
 const pointerPositions = {};
 
-class OrbitControls extends EventDispatcher {
+class OrbitControls extends THREE.EventDispatcher {
   constructor(object, domElement) {
     super();
 
@@ -153,10 +154,10 @@ class OrbitControls extends EventDispatcher {
     this._autoRotateSpeed = 1.5; // 30 seconds per orbit when fps is 60
 
     // Mouse buttons
-    this._mouseButtons = { _LEFT: MOUSE.ROTATE };
+    this._mouseButtons = { _LEFT: THREE.MOUSE.ROTATE };
 
     // Touch fingers
-    this._touches = { _ONE: TOUCH.ROTATE, _TWO: TOUCH.DOLLY_PAN };
+    this._touches = { _ONE: THREE.TOUCH.ROTATE, _TWO: THREE.TOUCH.DOLLY_PAN };
 
     // for reset
     this._target0 = this._target.clone();
@@ -214,24 +215,24 @@ class OrbitControls extends EventDispatcher {
   update(deltaTime = null) {
     const position = this._object.position;
 
-    offset.copy(position).sub(this._target);
+    offset["copy"](position)["sub"](this._target);
 
     // rotate offset to "y-axis-is-up" space
-    offset.applyQuaternion(quat);
+    offset["applyQuaternion"](quat);
 
     // angle from z-axis around y-axis
-    spherical.setFromVector3(offset);
+    spherical["setFromVector3"](offset);
 
-    if (this.autoRotate && state === STATE._NONE) {
+    if (this["autoRotate"] && state === STATE._NONE) {
       rotateLeft(getAutoRotationAngle(deltaTime));
     }
 
     if (this._enableDamping) {
-      spherical.theta += sphericalDelta.theta * this._dampingFactor;
-      spherical.phi += sphericalDelta.phi * this._dampingFactor;
+      spherical["theta"] += sphericalDelta["theta"] * this._dampingFactor;
+      spherical["phi"] += sphericalDelta["phi"] * this._dampingFactor;
     } else {
-      spherical.theta += sphericalDelta.theta;
-      spherical.phi += sphericalDelta.phi;
+      spherical["theta"] += sphericalDelta["theta"];
+      spherical["phi"] += sphericalDelta["phi"];
     }
 
     // restrict theta to be between desired limits
@@ -259,7 +260,7 @@ class OrbitControls extends EventDispatcher {
     // restrict phi to be between desired limits
     spherical.phi = Math.max(this._minPolarAngle, Math.min(this._maxPolarAngle, spherical.phi));
 
-    spherical.makeSafe();
+    spherical["makeSafe"]();
 
     // adjust the camera position based on zoom only if we're not zooming to the cursor or if it's an ortho camera
     // we adjust zoom later in these cases
@@ -269,14 +270,14 @@ class OrbitControls extends EventDispatcher {
       spherical.radius = clampDistance(spherical.radius * scale);
     }
 
-    offset.setFromSpherical(spherical);
+    offset["setFromSpherical"](spherical);
 
     // rotate offset back to "camera-up-vector-is-up" space
-    offset.applyQuaternion(quatInverse);
+    offset["applyQuaternion"](quatInverse);
 
-    position.copy(this._target).add(offset);
+    position["copy"](this._target)["add"](offset);
 
-    this._object.lookAt(this._target);
+    this._object["lookAt"](this._target);
 
     sphericalDelta.set(0, 0, 0);
 
@@ -284,7 +285,7 @@ class OrbitControls extends EventDispatcher {
     let zoomChanged = false;
     if (this._zoomToCursor && performCursorZoom) {
       let newRadius = null;
-      if (this._object.isPerspectiveCamera) {
+      if (this._object["isPerspectiveCamera"]) {
         // move the camera down the pointer ray
         // this._method avoids floating point error
         const prevRadius = offset.length();
@@ -326,9 +327,9 @@ class OrbitControls extends EventDispatcher {
 
     if (
       zoomChanged ||
-      lastPosition.distanceToSquared(this._object.position) > EPS ||
-      8 * (1 - lastQuaternion.dot(this._object.quaternion)) > EPS ||
-      lastTargetPosition.distanceToSquared(this._target) > 0
+      lastPosition["distanceToSquared"](this._object.position) > EPS ||
+      8 * (1 - lastQuaternion["dot"](this._object.quaternion)) > EPS ||
+      lastTargetPosition["distanceToSquared"](this._target) > 0
     ) {
       this.dispatchEvent(_changeEvent);
 
@@ -377,7 +378,7 @@ function rotateUp(angle) {
 }
 
 function dollyOut(dollyScale) {
-  if (t._object.isPerspectiveCamera) {
+  if (t._object["isPerspectiveCamera"]) {
     scale /= dollyScale;
   } else {
     console.warn(
@@ -388,7 +389,7 @@ function dollyOut(dollyScale) {
 }
 
 function dollyIn(dollyScale) {
-  if (t._object.isPerspectiveCamera) {
+  if (t._object["isPerspectiveCamera"]) {
     scale *= dollyScale;
   } else {
     console.warn(
@@ -430,7 +431,7 @@ function handleMouseDownRotate(event) {
 function handleMouseMoveRotate(event) {
   rotateEnd.set(event.clientX, event.clientY);
 
-  rotateDelta.subVectors(rotateEnd, rotateStart).multiplyScalar(t._rotateSpeed);
+  rotateDelta["subVectors"](rotateEnd, rotateStart)["multiplyScalar"](t._rotateSpeed);
 
   const element = t._domElement;
 
@@ -598,7 +599,7 @@ function onMouseDown(event) {
   }
 
   switch (mouseAction) {
-    case MOUSE.ROTATE:
+    case THREE.MOUSE.ROTATE:
       if (t._enableRotate === false) return;
 
       handleMouseDownRotate(event);
@@ -607,7 +608,7 @@ function onMouseDown(event) {
 
       break;
 
-    case MOUSE.PAN:
+    case THREE.MOUSE.PAN:
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
         if (t._enableRotate === false) return;
 
@@ -656,7 +657,7 @@ function onTouchStart(event) {
   switch (pointers.length) {
     case 1:
       switch (t._touches._ONE) {
-        case TOUCH.ROTATE:
+        case THREE.TOUCH.ROTATE:
           if (t._enableRotate === false) return;
 
           handleTouchStartRotate();
@@ -672,7 +673,7 @@ function onTouchStart(event) {
 
     case 2:
       switch (t._touches._TWO) {
-        case TOUCH.DOLLY_PAN:
+        case THREE.TOUCH.DOLLY_PAN:
           if (t._enableZoom === false) return;
 
           handleTouchStartDollyPan();
@@ -681,7 +682,7 @@ function onTouchStart(event) {
 
           break;
 
-        case TOUCH.DOLLY_ROTATE:
+        case THREE.TOUCH.DOLLY_ROTATE:
           if (t._enableZoom === false && t._enableRotate === false) return;
 
           handleTouchStartDollyRotate();

@@ -3,6 +3,9 @@
         "browser": true,
         "es2021": true
     },
+    "globals": {
+        "THREE": "writable"
+    },
     "extends": [
         "plugin:@typescript-eslint/recommended",    
         "react-app",

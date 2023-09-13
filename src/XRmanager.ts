@@ -9,31 +9,28 @@ export default class VRSessionManager {
 
   async startSession() {
     if (this.currentSession === null) {
-      console.log("NO CURRENT SESSION");
       const sessionInit = {
-        optionalFeatures: ["local-floor", "bounded-floor", "hand-tracking", "layers"],
+        "optionalFeatures": ["local-floor", "bounded-floor", "hand-tracking", "layers"],
       };
       try {
         if (!navigator.xr) {
-          throw new Error("WebXR not supported");
+          throw new Error("!WebXR");
         }
         const session = await navigator.xr.requestSession("immersive-vr", sessionInit);
-        session.addEventListener("end", () => this.endSession());
-        await this.renderer.xr.setSession(session);
+        // session.addEventListener("end", () => this.endSession());
+        await this.renderer.xr["setSession"](session);
         this.currentSession = session;
-        console.log("Started VR session", session);
       } catch (error) {
-        console.error("Failed to start VR session:", error);
+        console.error(error);
       }
     } else {
-      console.log("ENDING SESSION");
       this.currentSession.end();
     }
   }
 
   endSession() {
     if (this.currentSession) {
-      this.currentSession.removeEventListener("end", this.endSession);
+      this.currentSession.end();
       this.currentSession = null;
     }
   }

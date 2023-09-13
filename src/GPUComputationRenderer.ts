@@ -2,7 +2,7 @@
 // MIT license (Three.js authors): https://github.com/mrdoob/three.js/blob/dev/LICENSE
 // And TypeScriptified with help from https://github.com/three-types/three-ts-types/blob/master/types/three/examples/jsm/misc/GPUComputationRenderer.d.ts
 // Adapted specifically for this project
-const T = THREE;
+// const T = THREE;
 /**
  * GPUComputationRenderer, based on SimulationRenderer by zz85
  *
@@ -14,7 +14,7 @@ const T = THREE;
 export interface Variable {
   name: string;
   initialValueTexture: any;
-  material: typeof T.ShaderMaterial;
+  material: typeof THREE.ShaderMaterial;
   dependencies: Variable[];
   renderTargets: THREE.WebGLRenderTarget[];
   wrapS: number;
@@ -159,11 +159,11 @@ export class GPUComputationRenderer {
 
     this._currentTextureIndex = 0;
 
-    const dataType = T.FloatType;
+    const dataType = THREE.FloatType;
 
-    const scene = new T.Scene();
+    const scene = new THREE.Scene();
 
-    const camera = new T.Camera();
+    const camera = new THREE.Camera();
     camera.position.z = 1;
 
     const passThruUniforms = {
@@ -172,7 +172,7 @@ export class GPUComputationRenderer {
 
     const passThruShader = createShaderMaterial(getPassThroughFragmentShader(), passThruUniforms);
 
-    const mesh = new T.Mesh(new T.PlaneGeometry(2, 2), passThruShader);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), passThruShader);
     scene.add(mesh);
 
     // this.setDataType = function (type: typeof FloatType) {
@@ -189,16 +189,16 @@ export class GPUComputationRenderer {
       const material = createShaderMaterial(computeFragmentShader);
 
       const variable = {
-        name: variableName,
-        initialValueTexture: initialValueTexture,
-        material: material,
-        dependencies: null,
-        renderTargets: [],
-        wrapS: null,
-        wrapT: null,
-        minFilter: T.NearestFilter,
-        magFilter: T.NearestFilter,
-        buffer,
+        "name": variableName,
+        "initialValueTexture": initialValueTexture,
+        "material": material,
+        "dependencies": null,
+        "renderTargets": [],
+        "wrapS": null,
+        "wrapT": null,
+        "minFilter": THREE.NearestFilter,
+        "magFilter": THREE.NearestFilter,
+        "buffer": buffer,
       };
 
       this._variables.push(variable);
@@ -210,18 +210,19 @@ export class GPUComputationRenderer {
       variable: Variable,
       dependencies: Variable[] | null,
     ): void {
+      // console.log("Setting dependencies", variable, dependencies);
       variable.dependencies = dependencies as any;
     };
 
     this.init = function (): null | string {
       if (
-        renderer.capabilities.isWebGL2 === false &&
+        renderer.capabilities["isWebGL2"] === false &&
         renderer.extensions.has("OES_texture_float") === false
       ) {
         return "!OES_texture_float";
       }
 
-      if (renderer.capabilities.maxVertexTextures === 0) {
+      if (renderer.capabilities["maxVertexTextures"] === 0) {
         return "!vertexShaderTex";
       }
 
@@ -247,6 +248,7 @@ export class GPUComputationRenderer {
         );
         this.renderTexture(variable.initialValueTexture, variable.renderTargets[0]);
         this.renderTexture(variable.initialValueTexture, variable.renderTargets[1]);
+        // console.log("Initial variable value", variable.name, variable.initialValueTexture);
 
         // Adds dependencies uniforms to the ShaderMaterial
         const material = variable.material;
@@ -273,7 +275,8 @@ export class GPUComputationRenderer {
             }
 
             uniforms[depVar.name] = { value: null };
-
+            // console.log("Initial uniforms", uniforms);
+            // console.log(variable.renderTargets);
             material.fragmentShader =
               "\nuniform sampler2D " + depVar.name + ";\n" + material.fragmentShader;
           }
@@ -301,6 +304,7 @@ export class GPUComputationRenderer {
 
             uniforms[depVar.name].value = depVar.renderTargets[currentTextureIndex].texture;
           }
+          // console.log("Uniforms", uniforms);
         }
 
         // Performs the computation for this variable
@@ -340,11 +344,11 @@ export class GPUComputationRenderer {
     function createShaderMaterial(computeFragmentShader: string, uniforms?: any) {
       uniforms = uniforms || {};
 
-      const material = new T.ShaderMaterial({
+      const material = new THREE.ShaderMaterial({
         name: "GPUComputationShader",
         uniforms: uniforms,
         vertexShader: getPassThroughVertexShader(),
-        fragmentShader: computeFragmentShader,
+        "fragmentShader": computeFragmentShader,
       });
 
       addResolutionDefine(material);
@@ -363,28 +367,38 @@ export class GPUComputationRenderer {
       sizeXTexture = sizeXTexture || sizeX;
       sizeYTexture = sizeYTexture || sizeY;
 
-      wrapS = wrapS || T.ClampToEdgeWrapping;
-      wrapT = wrapT || T.ClampToEdgeWrapping;
+      wrapS = wrapS || THREE.ClampToEdgeWrapping;
+      wrapT = wrapT || THREE.ClampToEdgeWrapping;
 
-      minFilter = minFilter || T.NearestFilter;
-      magFilter = magFilter || T.NearestFilter;
+      minFilter = minFilter || THREE.NearestFilter;
+      magFilter = magFilter || THREE.NearestFilter;
 
-      const renderTarget = new T.WebGLRenderTarget(sizeXTexture, sizeYTexture, {
-        wrapS: wrapS,
-        wrapT: wrapT as any,
-        minFilter: minFilter,
-        magFilter: magFilter,
-        format: T.RGBAFormat,
-        type: dataType,
-        depthBuffer: false,
+      const renderTarget = new THREE.WebGLRenderTarget(sizeXTexture, sizeYTexture, {
+        "wrapS": wrapS,
+        "wrapT": wrapT as any,
+        "minFilter": minFilter,
+        "magFilter": magFilter,
+        "format": THREE.RGBAFormat,
+        "type": dataType,
+        "depthBuffer": false,
       });
+      // console.log(
+      //   "Creating render target",
+      //   sizeXTexture,
+      //   sizeYTexture,
+      //   wrapS,
+      //   wrapT,
+      //   minFilter,
+      //   magFilter,
+      //   renderTarget,
+      // );
 
       return renderTarget;
     };
 
     this.createTexture = function (): THREE.DataTexture {
       const data = new Float32Array(sizeX * sizeY * 4);
-      const texture = new T.DataTexture(data, sizeX, sizeY, T.RGBAFormat, T.FloatType);
+      const texture = new THREE.DataTexture(data, sizeX, sizeY, THREE.RGBAFormat, THREE.FloatType);
       texture.needsUpdate = true;
       return texture;
     };
@@ -394,7 +408,7 @@ export class GPUComputationRenderer {
       // input = Texture
       // output = RenderTarget
 
-      passThruUniforms.passThruTexture.value = input as any;
+      passThruUniforms["passThruTexture"].value = input as any;
 
       this._doRenderTarget(passThruShader, output);
 
@@ -407,17 +421,25 @@ export class GPUComputationRenderer {
       buffer?: Float32Array,
       callbacks?: ((buffer: Float32Array) => void)[],
     ): void {
-      const currentRenderTarget = renderer.getRenderTarget();
+      const currentRenderTarget = renderer["getRenderTarget"]();
 
-      const currentXrEnabled = renderer.xr.enabled;
-      const currentShadowAutoUpdate = renderer.shadowMap.autoUpdate;
+      const currentXrEnabled = renderer["xr"]["enabled"];
+      // const currentShadowAutoUpdate = renderer.shadowMap.autoUpdate;
 
       renderer.xr.enabled = false; // Avoid camera modification
-      renderer.shadowMap.autoUpdate = false; // Avoid re-computing shadows
+      // renderer.shadowMap.autoUpdate = false; // Avoid re-computing shadows
       mesh.material = material as any;
-      renderer.setRenderTarget(output);
-      renderer.render(scene, camera);
-
+      renderer["setRenderTarget"](output);
+      renderer["render"](scene, camera);
+      // console.log(
+      //   "Rendering to",
+      //   output,
+      //   buffer,
+      //   callbacks,
+      //   currentRenderTarget,
+      //   currentXrEnabled,
+      //   material,
+      // );
       if (buffer && callbacks?.length) {
         this._readPixelsAsync(buffer).then(() => {
           for (let i = 0; i < callbacks.length; i++) {
@@ -429,7 +451,7 @@ export class GPUComputationRenderer {
       mesh.material = passThruShader;
 
       renderer.xr.enabled = currentXrEnabled;
-      renderer.shadowMap.autoUpdate = currentShadowAutoUpdate;
+      // renderer.shadowMap.autoUpdate = currentShadowAutoUpdate;
 
       renderer.setRenderTarget(currentRenderTarget);
     };
@@ -526,6 +548,7 @@ async function getBufferSubDataAsync(
 
   gl.bindBuffer(target, buffer);
   gl.getBufferSubData(target, srcByteOffset, dstBuffer, dstOffset, length);
+  // console.log("Reading buffer", buffer, srcByteOffset, dstBuffer, dstOffset, length);
   gl.bindBuffer(target, null);
 }
 
