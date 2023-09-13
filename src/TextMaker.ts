@@ -84,7 +84,7 @@ export default class TextMaker {
       "depthTest": false,
     });
 
-    textShaderMaterial.transparent = true;
+    textShaderMaterial["transparent"] = true;
     textShaderMaterial.side = THREE.DoubleSide;
     textShaderMaterial["vertexColors"] = true;
 
@@ -125,10 +125,10 @@ export default class TextMaker {
     const size = { x: 90, y: 128 };
     function drawStroked(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
       ctx.font = `${size.y}px monospace`;
-      ctx.strokeStyle = "black";
-      ctx.lineWidth = 2;
-      ctx.lineJoin = "miter"; //Experiment with "bevel" & "round" for the effect you want!
-      ctx.miterLimit = 2;
+      ctx["strokeStyle"] = "black";
+      ctx["lineWidth"] = 2;
+      ctx["lineJoin"] = "miter"; //Experiment with "bevel" & "round" for the effect you want!
+      ctx["miterLimit"] = 2;
       ctx.strokeText(text, x, y);
       ctx.fillStyle = "white";
       ctx.fillText(text, x, y);

@@ -127,11 +127,6 @@ function gradientTexture(color1: string, color2: string, color3: string) {
   gradient.addColorStop(0.51, color2);
   gradient.addColorStop(1.0, color3);
 
-  // gradient.addColorStop(0.5, ");
-  // gradient.addColorStop(0.51, "#03123B");
-  // gradient.addColorStop(1.0, "#03123B");
-  // gradient.addColorStop(0.9, "#005AB4");
-
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -185,7 +180,7 @@ const init = async () => {
   directionalLight.position.set(0, 1, 1);
   // directionalLight.castShadow = true;
   scene.add(directionalLight);
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
   scene.add(ambientLight);
 
   // Create a renderer.
@@ -615,7 +610,7 @@ const init = async () => {
     if (castle.u.owner === "p") {
       castle.u.troops += sizeFactor * timeDelta * 0.001;
     } else if (castle.u.owner === "e") {
-      // castle.u.troops += sizeFactor * timeDelta * 0.001;
+      castle.u.troops += sizeFactor * timeDelta * 0.001;
     }
     updateTroopsDisplay(castle, Math.floor(castle.u.troops));
   }
@@ -1004,7 +999,7 @@ const init = async () => {
           sendFleetFromPlaceToPlace(startPlace, endPlace);
         }
       },
-      1005000 - difficulty * 1000,
+      5000 - difficulty * 1000,
     );
   }
   function togglePauseScreen() {
