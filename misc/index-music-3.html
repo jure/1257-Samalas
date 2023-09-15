@@ -68,7 +68,7 @@ document.getElementById('playButton').addEventListener('click', () => {
                 // Modulate the filter frequency with the crash envelope
                 const baseFreq = 300;  // Base frequency
         const freqRange = 400; // Amount by which the frequency can increase
-        filter.frequency.value = baseFreq + freqRange * crashEnvelope;
+
     }
     };
     // Low pass filter
@@ -78,6 +78,7 @@ document.getElementById('playButton').addEventListener('click', () => {
     filter.Q.value = 1;
     scriptNode.connect(filter);
     filter.connect(audioContext.destination);
+    filter.frequency.value = baseFreq + freqRange * crashEnvelope;
     // filter.connect(reverb);  // Connect the node to the audio context
 
 

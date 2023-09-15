@@ -49,46 +49,31 @@
       scene.add(light);
 
 
-      // Hemisphere geometry
-      const hemisphereGeometry = new THREE.SphereGeometry(1, 32, 32, 0, Math.PI * 2, 0, Math.PI / 2);
-
-      // Tetrahedron geometry
-      // const tetrahedronGeometry = new THREE.TetrahedronGeometry(0.5);
-      // tetrahedronGeometry.translate(0, -1, 0);
-
-      // tetrahedronGeometry.rotateX(Math.PI / 2);
-      const tetrahedronGeometry = new THREE.CylinderGeometry(0, 0.5, 1, 4, 1)
-      // Triangle
-      // const triangleGeometry = new THREE.BufferGeometry();
-      // triangleGeometry.setAttribute(
-      //   'position',
-      //   new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0, 1, 0], 3)
-      // );
-      // triangleGeometry.setIndex([0, 1, 2]);
+      const canopyGeometry = new THREE.SphereGeometry(1, 32, 32, 0, Math.PI * 2, 0, Math.PI / 2);
+      const trunkGeometry = new THREE.CylinderGeometry(0, 0.5, 1, 4, 1)
       const vertexReplacement =           `
             vec3 transformed = vec3(position);
             transformed.x += sin(position.y * 10.0 + time) * 0.1;
             transformed.z += cos(position.y * 10.0 + time) * 0.1;
           `
-      // const triangleMaterial = new THREE.MeshStandardMaterial({ color: 0x0f9f0f, side: THREE.DoubleSide });
-      const material = new THREE.MeshStandardMaterial({ color: 0x00ff00,
+      const canopyMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00,
         side: THREE.DoubleSide
       });
-      material.onBeforeCompile = shader => {
+      canopyMaterial.onBeforeCompile = shader => {
         shader.uniforms.time = { value: 0 };
         shader.vertexShader = 'uniform float time;\n' + shader.vertexShader;
         shader.vertexShader = shader.vertexShader.replace(
           '#include <begin_vertex>',
           vertexReplacement
         );
-        material.userData.shader = shader;
+        canopyMaterial.userData.shader = shader;
       };
       const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513,
         side: THREE.DoubleSide
       });
 
 
-      const triangleGeometry = new THREE.BufferGeometry();
+      const rootGeometry = new THREE.BufferGeometry();
 
       const vertices = new Float32Array( [
         -1.0, -1.0,  0.0, // v0
@@ -102,28 +87,25 @@
         2, 3, 0,
       ];
 
-      triangleGeometry.setIndex( indices );
-      triangleGeometry.setAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
-      triangleGeometry.computeVertexNormals();
-      triangleGeometry.rotateY(Math.PI)
-      const triangleMaterial = new THREE.MeshStandardMaterial( { color: 0x8b4513, side: THREE.DoubleSide } );
-      triangleMaterial.onBeforeCompile = shader => {
+      rootGeometry.setIndex( indices );
+      rootGeometry.setAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
+      rootGeometry.computeVertexNormals();
+      rootGeometry.rotateY(Math.PI)
+      const rootMaterial = new THREE.MeshStandardMaterial( { color: 0x8b4513, side: THREE.DoubleSide } );
+      rootMaterial.onBeforeCompile = shader => {
         shader.uniforms.time = { value: 0 };
         shader.vertexShader = 'uniform float time;\n' + shader.vertexShader;
         shader.vertexShader = shader.vertexShader.replace(
           '#include <begin_vertex>',
           vertexReplacement
         );
-        triangleMaterial.userData.shader = shader;
+        rootMaterial.userData.shader = shader;
       };
-      // const mesh = new THREE.Mesh( triangleGeometry, triangleMaterial );
-
 
       // Create separate instanced meshes
-      const hemisphereInstancedMesh = new THREE.InstancedMesh(hemisphereGeometry, material, 100);
-      const tetrahedronInstancedMesh = new THREE.InstancedMesh(tetrahedronGeometry, trunkMaterial, 100);
-  
-      const lineInstancedMesh = new THREE.InstancedMesh(triangleGeometry, triangleMaterial, 800);
+      const hemisphereInstancedMesh = new THREE.InstancedMesh(canopyGeometry, canopyMaterial, 100);
+      const trunkInstancedMesh = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, 100);
+      const lineInstancedMesh = new THREE.InstancedMesh(rootGeometry, rootMaterial, 800);
 
       const rndScale = 1.5;
       const dummy = new THREE.Object3D();
@@ -132,26 +114,22 @@
         const position = [Math.random() * 50 - 25, Math.random() * 50 - 25, Math.random() * 50 - 25]
         // Random positioning
         if(i > 0) {
-        matrix.setPosition(...position);
-        // matrix.scale(new THREE.Vector3(Math.random() * 2, Math.random() * 2, Math.random() * 2));
+          matrix.setPosition(...position);
         }
         hemisphereInstancedMesh.setMatrixAt(i, matrix);
-        tetrahedronInstancedMesh.setMatrixAt(i, matrix);
+        trunkInstancedMesh.setMatrixAt(i, matrix);
         for(let j = 0; j < 8; j++) {
           dummy.matrix.identity();
           dummy.position.set(position[0] + (Math.random() * rndScale) - (0.5*rndScale), position[1], position[2] + (Math.random() * rndScale - 0.5 * rndScale));
-          // matrix.setPosition(position[0] + (Math.random() * rndScale) - (0.5*rndScale), position[1], position[2] + (Math.random() * rndScale - 0.5 * rndScale));
           dummy.scale.set(0.03, 0.5, 1);
           dummy.rotateY(Math.PI / 4 * j);
           dummy.updateMatrix();
-          // matrix.makeRotationY(Math.PI / 4 * j);
-
           lineInstancedMesh.setMatrixAt(i * 8 + j, dummy.matrix);
         }
       }
 
       scene.add(hemisphereInstancedMesh);
-      scene.add(tetrahedronInstancedMesh);
+      scene.add(trunkInstancedMesh);
       scene.add(lineInstancedMesh);
 
       camera.position.z = 70;
@@ -160,19 +138,9 @@
         controls.update()
         requestAnimationFrame(animate);
 
-      
-        // hemisphereInstancedMesh.rotation.x += 0.005;
-        // hemisphereInstancedMesh.rotation.y += 0.005;
-
-        // tetrahedronInstancedMesh.rotation.x += 0.005;
-        // tetrahedronInstancedMesh.rotation.y += 0.005;
-
-        // lineInstancedMesh.rotation.x += 0.005;
-        // lineInstancedMesh.rotation.y += 0.005;
-
         renderer.render(scene, camera);
-        if(material.userData.shader) { material.userData.shader.uniforms.time.value += 0.03 }
-        if(triangleMaterial.userData.shader) { triangleMaterial.userData.shader.uniforms.time.value += 0.03 }
+        if(canopyMaterial.userData.shader) { canopyMaterial.userData.shader.uniforms.time.value += 0.03 }
+        if(rootMaterial.userData.shader) { rootMaterial.userData.shader.uniforms.time.value += 0.03 }
       }
 
       animate();
