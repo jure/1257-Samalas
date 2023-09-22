@@ -1,7 +1,7 @@
 {
   "name": "three-game",
   "version": "1.0.0",
-  "main": "src/index.jsx",
+  "main": "src/index.ts",
   "dependencies": {
     "browserslist": "^4.18.1",
     "camelcase": "^6.2.1",
@@ -31,7 +31,7 @@
     "source-map-loader": "^3.0.0",
     "style-loader": "^3.3.1",
     "terser-webpack-plugin": "^5.3.9",
-    "three": "^0.154.0",
+    "three": "^0.156.1",
     "webpack": "^5.88.2",
     "webpack-bundle-analyzer": "^4.9.0",
     "webpack-dev-server": "^4.6.0",
@@ -45,7 +45,8 @@
     "build-f-norr": "node scripts/build.js && advzip -4 build/build.zip -a build/index.html build/main.js build/waveProcessor.js && stat -f%z build/build.zip",
     "build": "node scripts/build.js && stat -f%z build/main.js",
     "test": "node scripts/test.js --env=jsdom",
-    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx,json}'"
+    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx,json}'",
+    "build-gh": "BUILD_PATH=docs node scripts/build.js"
   },
   "browserslist": [
     ">0.2%",
@@ -58,7 +59,7 @@
     "@types/lodash-es": "^4.17.7",
     "@types/react": "^18.2.14",
     "@types/react-dom": "^18.2.6",
-    "@types/three": "^0.155.0",
+    "@types/three": "^0.156.0",
     "@types/uuid": "^9.0.2",
     "@types/audioworklet": "^0.0.50",
     "@typescript-eslint/eslint-plugin": "^5.61.0",

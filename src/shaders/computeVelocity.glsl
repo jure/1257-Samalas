@@ -2,8 +2,6 @@
   #define delta (1.0/60.0)
   uniform float d; // difficulty
   
-  float density = 0.45;
-
   const float width = resolution.x;
   const float height = resolution.y;
   
@@ -63,7 +61,8 @@
           // 0.6 is our ship
           // 0.601 is the enemy ship?
 
-          float distanceSq = max(distance * distance, 0.0001);
+          float distanceSq = distance * distance;
+          // float distanceSq = max(distance * distance, 0.0001);
 
           // Collide with target, the only way to kill a particle
           // 0.6 type is ships, in that case mass is target id
@@ -76,7 +75,7 @@
 
           if ( compareFloats(ourType, 0.6) && compareFloats(theirType, 0.6)) {
             // Ship interactions (all avoid each other)
-            float nearField = (-0.1) / (distanceSq * distanceSq); // distance to the 4th power
+            float nearField = (-0.05) / (distanceSq * distanceSq); // distance to the 4th power
             
             acceleration += nearField * normalize( dPos );
           } else if (compareFloats(ourType, 0.6) && compareFloats(idParticle2, mass)) {

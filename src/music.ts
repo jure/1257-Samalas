@@ -164,23 +164,23 @@ export default class Music {
 
     osc.type = "sine";
 
-    // Start frequency at 150Hz and quickly drop it to 30Hz
-    osc.frequency.setValueAtTime(80, this._audioContext.currentTime);
+    const filter = this._audioContext.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(300, this._audioContext.currentTime);
+
+    osc.frequency.setValueAtTime(80, this._audioContext.currentTime + 0.01);
     // gainNode.gain.linearRampToValueAtTime(0.3, this._audioContext.currentTime);
     gainNode.gain.setValueAtTime(0.8, this._audioContext.currentTime);
     osc.frequency.exponentialRampToValueAtTime(30, this._audioContext.currentTime + 0.2);
     gainNode.gain.exponentialRampToValueAtTime(0.001, this._audioContext.currentTime + 0.5);
     // Connect the gain node to a low pass filter
-    const filter = this._audioContext.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(300, this._audioContext.currentTime);
 
     osc.connect(gainNode);
 
     gainNode.connect(filter);
     filter.connect(this._audioContext.destination);
 
-    osc.start(this._audioContext.currentTime);
+    osc.start(this._audioContext.currentTime + 0.02);
     osc.stop(this._audioContext.currentTime + 0.5);
     // Allowed to run again after 1 second
     this._scheduleAlignedTimeout(() => this._playKick(), 2000, this._audioContext.currentTime + 1);

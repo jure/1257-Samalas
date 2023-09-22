@@ -58,25 +58,32 @@ export function playRandomSoundAtPosition(
 ) {
   // Connect to positional audio
   // Only start playing on regular interval
-  setTimeout(
-    () => {
-      const positionalAudio =
-        positionalPool[player][positionalPoolIndex++ % positionalPool[player].length];
+  // const positionalAudio =
+  //   positionalPool[player][positionalPoolIndex++ % positionalPool[player].length];
 
-      // Is any positional audio playing?
-      const playing = positionalPool[player].some((p) => p["isPlaying"]);
-      if (!playing) {
-        positionalAudio.position.copy(position);
+  // Is any positional audio playing?
+  const playing = positionalPool[player].some((p) => p["isPlaying"]);
+  if (!playing) {
+    setTimeout(
+      () => {
+        const positionalAudio =
+          positionalPool[player][positionalPoolIndex++ % positionalPool[player].length];
 
-        const note = player === "p" ? 19 : 6;
+        // Is any positional audio playing?
+        const playing = positionalPool[player].some((p) => p["isPlaying"]);
+        if (!playing) {
+          positionalAudio.position.copy(position);
 
-        const source = sounds[note + 6];
+          const note = player === "p" ? 19 : 6;
 
-        source.buffer && positionalAudio["setBuffer"](source.buffer);
+          const source = sounds[note + 6];
 
-        positionalAudio.play();
-      }
-    },
-    50 - ((Date.now() - now) % 50),
-  );
+          source.buffer && positionalAudio["setBuffer"](source.buffer);
+
+          positionalAudio.play();
+        }
+      },
+      50 - ((Date.now() - now) % 50),
+    );
+  }
 }

@@ -5,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <meta name="theme-color" content="#000000" />
     <title>1257 Samalas</title>
-    <script src="https://js13kgames.com/webxr-src/2023/three.js"></script>
     <style>
       body { margin: 0; background: black }
       canvas { display: block; }
       .b {
-        border: 5px solid #fff;
+        border: 9px solid #fff;
         border-image: linear-gradient(45deg, #266F56, #C52F34) 1;
       }
       .u {
@@ -29,6 +28,12 @@
         overflow: auto;
         text-align: center;
       }
+      @media screen and (min-width: 1024px) {
+        .u {
+          max-width: 50%;
+        }
+      }
+
       .c {
         display: block;
         margin: 0 auto;
@@ -44,7 +49,14 @@
         display: none;
       }
       #d {
-        font-size: 1.3em;
+        font-size: 1em;
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: bold;
+      }
+      #m {
+        font-size: 1em;
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: bold;
       }
       #p {
         display: none;
@@ -75,7 +87,14 @@
         <option value="2">Hard</option>
         <option value="3">Don't do it</option>
       </select>
+      <p>Map</p>
+      <select id="m" >
+        <option value="1">Tutorial</option>
+        <option value="2">Large field</option>
+        <option value="3">All around you</option>
+      </select>
       <button id="b" class="c">Play</button>
+
     </div>
     <div id="p" class="b u">
       Paused 

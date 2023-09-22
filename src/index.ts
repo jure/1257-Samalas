@@ -1,3 +1,9 @@
+import * as THREE from "three";
+
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineMaterial } from "./LineMaterial";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+
 import XRmanager from "./XRmanager";
 import TextMaker from "./TextMaker";
 import { GPUComputationRenderer, Variable } from "./GPUComputationRenderer";
@@ -9,6 +15,7 @@ import knightFragment from "./shaders/knight.fragment.glsl";
 import { OrbitControls } from "./OrbitControls";
 import { playRandomSoundAtPosition } from "./sounds";
 import Music from "./music";
+import * as levels from "./levels";
 
 // P is player, E si enemy
 // import Stats from "three/addons/libs/stats.module.js";
@@ -44,6 +51,7 @@ const unitsFound = {
   p: 0,
   e: 0,
 };
+
 const trees: CustomGroup[] = [];
 let difficulty = 0;
 let controllerLock: null | number = null;
@@ -52,6 +60,13 @@ let lastRotationTime = 0;
 class CustomGroup extends THREE.Group {
   u: any = {};
 }
+
+const colors = {
+  player: new THREE.Color(0x00c52f),
+  enemy: new THREE.Color(0xc52f34),
+  playerUI: new THREE.Color(0x00ff00),
+  enemyUI: new THREE.Color(0xff0000),
+};
 
 function fillTextures(tP: THREE.DataTexture, tV: THREE.DataTexture) {
   const posArray = tP.image.data;
@@ -62,11 +77,14 @@ function fillTextures(tP: THREE.DataTexture, tV: THREE.DataTexture) {
   for (let k = 0, kl = posArray.length; k < kl; k += 4) {
     // First row of the texture (WIDTH), is the castle locations
     if (k < 4 * WIDTH) {
-      posArray[k + 0] = places[k / 4].position.x;
-      posArray[k + 1] = places[k / 4].position.y;
-      posArray[k + 2] = places[k / 4].position.z;
-      posArray[k + 3] = 0.1; // fixed
-      velArray[k + 3] = 1.0; // mass
+      if (places[k / 4]) {
+        console.log("place", places[k / 4].position);
+        posArray[k + 0] = places[k / 4].position.x;
+        posArray[k + 1] = places[k / 4].position.y;
+        posArray[k + 2] = places[k / 4].position.z;
+        posArray[k + 3] = 0.1; // fixed
+        velArray[k + 3] = 1.0; // mass
+      }
     } else {
       // units/units
       posArray[k + 0] = -3.0;
@@ -88,7 +106,6 @@ function initComputeRenderer() {
   const dtVelocity = gpuCompute.createTexture();
   const dtAggregate = gpuCompute.createTexture();
   fillTextures(dtPosition, dtVelocity);
-
   velocityVariable = gpuCompute.addVariable("tV", computeVelocity, dtVelocity, dtVelocityBuffer);
   (velocityVariable.material as any).uniforms.d = { value: 3 };
 
@@ -111,39 +128,46 @@ function initComputeRenderer() {
   }
 }
 
-function gradientTexture(color1: string, color2: string, color3: string) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 16;
-  canvas.height = 256;
+// function gradientTexture(color1: string, color2: string, color3: string) {
+//   const canvas = document.createElement("canvas");
+//   canvas.width = 1024 * 4;
+//   canvas.height = 1024 * 4;
 
-  const context = canvas.getContext("2d");
-  if (!context) {
-    throw new Error();
-  }
+//   const context = canvas.getContext("2d");
+//   if (!context) {
+//     throw new Error();
+//   }
 
-  const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+//   const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
 
-  gradient.addColorStop(0.5, color1);
-  gradient.addColorStop(0.51, color2);
-  gradient.addColorStop(1.0, color3);
+//   gradient.addColorStop(0.5, color1);
+//   // gradient.addColorStop(0.51, color2);
+//   // gradient.addColorStop(1.0, color3);
 
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, canvas.width, canvas.height);
+//   context.fillStyle = gradient;
+//   context.fillRect(0, 0, canvas.width, canvas.height);
 
-  const texture = new THREE.Texture(canvas);
-  texture.needsUpdate = true;
-  return texture;
-}
+//   // Create a stary sky
+//   // const stars = 1000;
+//   // for (let i = 0; i < stars; i++) {
+//   //   const x = Math.random() * canvas.width;
+//   //   const y = Math.random() * canvas.height;
+//   //   const r = Math.random() * 1;
+//   //   context.beginPath();
+//   //   context.arc(x, y, r, 0, 2 * Math.PI);
+//   //   context.fillStyle = "white";
+//   //   context.fill();
+//   // }
+
+//   const texture = new THREE.Texture(canvas);
+//   texture.needsUpdate = true;
+//   return texture;
+// }
 
 const init = async () => {
   // Create a scene
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x505050);
-
-  const pColor = new THREE.Color(0x00ff99);
-  const eColor = new THREE.Color(0xc52f34);
-  const selectedColor = new THREE.Color(0xffa500);
-  // const selectedColor = pColor.clone().offsetHSL(0, 0.1, 0.5); //new THREE.Color(0xff0000);
 
   // Create a camera
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 200);
@@ -158,14 +182,43 @@ const init = async () => {
   // document.body.appendChild(stats.dom);
 
   // Gradient background for an icosahedron
-  const gradTexture = gradientTexture("#000833", "#03123B", "#03123B");
+  // const gradTexture = gradientTexture("#000833", "#03123B", "#03123B");
   const gradMaterial = new THREE.MeshBasicMaterial({
-    map: gradTexture,
+    // map: gradTexture,
     side: THREE.BackSide,
     "depthWrite": false,
     // wireframe: true,
   });
-  const gradGeometry = new THREE.IcosahedronGeometry(100, 3);
+
+  gradMaterial.onBeforeCompile = (shader) => {
+    shader.uniforms.time = { value: 0 };
+    shader.vertexShader = "varying vec2 vUv;\n" + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+      vUv = uv;
+      `,
+    );
+
+    shader.fragmentShader = "uniform float time;\nvarying vec2 vUv;\n" + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <logdepthbuf_fragment>",
+      `#include <logdepthbuf_fragment>
+      // uniform float time;
+      // Gradient based on vUv.y
+      vec3 darkBlue = vec3(0.02, 0.08, 0.16);
+      vec3 whiteBlue = vec3(0.27, 0.46, 0.60);
+      diffuseColor.rgb = mix(darkBlue, whiteBlue, pow(vUv.y, 3.0));
+    
+      // Continue with the rest of your shader code, and when you want to use the gradient color:
+
+      `,
+    );
+  };
+
+  // const gradGeometry = new THREE.IcosahedronGeometry(100, 3);
+  const gradGeometry = new THREE.SphereGeometry(100, 32, 32);
+  // const gradGeometry = new THREE.CylinderGeometry(100, 100, 100, 32, 32, true);
   const gradMesh = new THREE.Mesh(gradGeometry, gradMaterial);
   scene.add(gradMesh);
 
@@ -210,37 +263,47 @@ const init = async () => {
     adjustAspect();
   });
 
-  function stretchLineBetweenPoints(line: THREE.Mesh, start: THREE.Vector3, end: THREE.Vector3) {
-    const direction = new THREE.Vector3().subVectors(end, start);
-    const length = direction.length();
-    const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+  function stretchLineBetweenPoints(line: Line2, startPlace: CustomGroup, endPlace: CustomGroup) {
+    const geometry = line.geometry.clone() as LineGeometry;
+    const start = startPlace.position;
+    const end = endPlace.position;
+    const startColor = startPlace.u.color;
+    const endColor = endPlace.u.color;
 
-    // Reset the cube's state to the default
-    // line.position.set(0, 0, 0);
-    line.rotation.set(0, 0, 0);
-    line.scale.set(1, 1, 1);
-    // Use a matrix to define the orientation and apply it
-    const orientation = new THREE.Matrix4();
-    orientation.lookAt(start, end, new THREE.Vector3(0, 1, 0));
-    // Rotate 90 degrees around X-axis to align the cube's top face with the forward direction
-    const alignmentRotation = new THREE.Matrix4().makeRotationX(Math.PI / 2);
-    orientation.multiply(alignmentRotation);
-    line["applyMatrix4"](orientation);
-
-    // Apply the scaling to the Y dimension
-    line.scale["setY"](length);
-
-    // After scaling, we then set the position.
-    // This order ensures the cube isn't prematurely moved before the scaling is done.
-    line.position.copy(midpoint);
+    geometry.setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
+    geometry.computeBoundingSphere();
+    geometry.setColors([
+      startColor.r,
+      startColor.g,
+      startColor.b,
+      endColor.r,
+      endColor.g,
+      endColor.b,
+    ]);
+    line.geometry = geometry;
+    line.computeLineDistances();
     line.visible = true;
   }
 
   // Create the indicator line
-  // Use a cube for now
-  const lineGeometry = new THREE.BoxGeometry(0.1, 1.0, 0.1);
-  const lineMaterial = new THREE.MeshBasicMaterial({ "color": pColor });
-  const line = new THREE.Mesh(lineGeometry, lineMaterial);
+  const lineGeometry = new LineGeometry();
+  lineGeometry.setPositions([0, 0, 0, 1, 1, 1]);
+
+  const lineMaterial = new LineMaterial({
+    color: 0xffffff,
+    worldUnits: true,
+    linewidth: 0.04,
+    vertexColors: true,
+    dashed: true,
+    dashScale: 4,
+    gapSize: 0.5,
+    alphaToCoverage: true,
+  });
+
+  const line = new Line2(lineGeometry, lineMaterial as any);
+  line.computeLineDistances();
+  line.frustumCulled = false;
+  // const line = new THREE.Mesh(lineGeometry, lineMaterial);
   line.visible = false;
   scene.add(line);
 
@@ -295,13 +358,79 @@ const init = async () => {
     rootMaterial.userData.shader = shader;
   };
 
-  // Create separate instanced meshes
-  const canopyInstancedMesh = new THREE.InstancedMesh(canopyGeometry, canopyMaterial, 64);
-  const trunkInstancedMesh = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, 64);
-  const rootsInstancedMesh = new THREE.InstancedMesh(rootGeometry, rootMaterial, 64 * 8);
+  let map = levels.level1;
+  let sphereCount = 16; // Number of places you want to create
+  const mapSelect = document.getElementById("m") as HTMLSelectElement;
+
   // To be re/used for scaling
   const treeDummy = new THREE.Group();
   const treeScale = 0.3;
+
+  // Create separate instanced meshes
+  let canopyInstancedMesh = new THREE.InstancedMesh(canopyGeometry, canopyMaterial, sphereCount);
+  let trunkInstancedMesh = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, sphereCount);
+  let rootsInstancedMesh = new THREE.InstancedMesh(rootGeometry, rootMaterial, sphereCount * 8);
+  generatePlaces();
+  initComputeRenderer();
+
+  scene.add(canopyInstancedMesh);
+  scene.add(trunkInstancedMesh);
+  scene.add(rootsInstancedMesh);
+
+  initKnights();
+
+  mapSelect.onchange = () => {
+    console.log("map changed");
+    let newMap;
+    const selectedMap = mapSelect.value;
+    if (selectedMap === "1") {
+      newMap = levels.level1;
+      sphereCount = 16;
+    } else if (selectedMap === "2") {
+      newMap = levels.level2;
+      sphereCount = 32;
+    } else if (selectedMap === "3") {
+      newMap = levels.level3;
+      sphereCount = 64;
+    } else {
+      newMap = levels.level1;
+    }
+    if (newMap !== map) {
+      places.forEach((place) => {
+        scene.remove(place);
+      });
+      places.length = 0;
+      placeSpheres.forEach((placeSphere) => {
+        scene.remove(placeSphere);
+      });
+      placeSpheres.length = 0;
+      trees.forEach((tree) => {
+        scene.remove(tree);
+      });
+      trees.length = 0;
+
+      // Dispose existing instanced meshes
+      scene.remove(canopyInstancedMesh);
+      canopyInstancedMesh["dispose"]();
+      scene.remove(trunkInstancedMesh);
+      trunkInstancedMesh["dispose"]();
+      scene.remove(rootsInstancedMesh);
+      rootsInstancedMesh["dispose"]();
+
+      // Create new instanced meshes
+      canopyInstancedMesh = new THREE.InstancedMesh(canopyGeometry, canopyMaterial, sphereCount);
+      trunkInstancedMesh = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, sphereCount);
+      rootsInstancedMesh = new THREE.InstancedMesh(rootGeometry, rootMaterial, sphereCount * 8);
+
+      scene.add(canopyInstancedMesh);
+      scene.add(trunkInstancedMesh);
+      scene.add(rootsInstancedMesh);
+
+      map = newMap;
+      generatePlaces();
+      changePlaces();
+    }
+  };
 
   // Positional audio
   const listener = new THREE.AudioListener();
@@ -309,8 +438,9 @@ const init = async () => {
 
   const createPositionalAudioPool = (listener: THREE.AudioListener) => {
     const audio = new THREE.PositionalAudio(listener);
-    audio["setRefDistance"](20);
-    audio["setVolume"](0.5);
+    audio["setRefDistance"](2);
+    audio["setVolume"](0.4);
+    // audio["setRolloffFactor"](0.5);
     scene.add(audio);
     return audio;
   };
@@ -321,15 +451,6 @@ const init = async () => {
   };
 
   // Logic to create random places
-  const sphereCount = 64; // Number of places you want to create
-  const radius = 5;
-
-  function sphericalToCartesian(radius: number, polar: number, azimuthal: number) {
-    const x = radius * Math.sin(polar) * Math.cos(azimuthal);
-    const y = radius * Math.sin(polar) * Math.sin(azimuthal);
-    const z = radius * Math.cos(polar);
-    return new THREE.Vector3(x, y, z);
-  }
 
   function scaleTreePart(
     type: "c" | "t" | "r",
@@ -374,81 +495,68 @@ const init = async () => {
     scaleTreePart("r", index, scale, rootsInstancedMesh, 0.03, 0.3, 1.0, rotation, 8);
   }
 
-  const goldenRatio = (1 + Math.sqrt(5)) / 2;
+  function generatePlaces() {
+    for (let i = 0; i < sphereCount; i++) {
+      // Random position in the scene
+      const position = map(i, sphereCount);
+      const place = createPlace(i === 0 ? 0 : i === sphereCount - 1 ? 1 : undefined) as CustomGroup;
+      place.position.copy(position);
+      place.u.originalPosition = place.position.clone();
+      scene.add(place);
+      const material = new THREE.MeshBasicMaterial();
 
-  for (let i = 0; i < sphereCount; i++) {
-    // Distribute polar angles relatively evenly by splitting max angle into even segments
-    const polar = Math.acos(1 - (2 * (i + 0.5)) / sphereCount);
-    // if (polar > maxPolarAngle) continue; // Skip anything beyond half-circle
+      places.push(place);
 
-    // Distribute azimuthal angles based on golden ratio
-    const azimuthal = (2 * Math.PI * (i % goldenRatio)) / goldenRatio;
+      const placeSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(place.u["size"] / 10.0),
+        material,
+      );
+      placeSphere.position.copy(place.position.clone());
+      placeSpheres.push(placeSphere);
+      place.u.sphere = placeSphere;
+      placeSphere.visible = false;
+      scene.add(placeSphere);
 
-    const position = sphericalToCartesian(radius, polar, azimuthal);
+      // Add the trees
+      const tree = new CustomGroup();
+      tree.position.copy(place.position);
+      trees.push(tree);
+      const dummy = new THREE.Object3D();
+      canopyInstancedMesh["setMatrixAt"](i, dummy.matrix);
+      tree["u"]["c"] = dummy.matrix.clone();
+      trunkInstancedMesh.setMatrixAt(i, dummy.matrix);
+      tree.u["t"] = dummy.matrix.clone();
 
-    const place = createPlace(i === 0 ? 0 : i === sphereCount - 1 ? 1 : undefined) as CustomGroup;
+      // Air roots
+      const rndScale = 1.5;
+      tree.u["r"] = [];
+      for (let j = 0; j < 8; j++) {
+        dummy["matrix"]["identity"]()["decompose"](dummy.position, dummy.quaternion, dummy.scale);
+        dummy.position.x += Math.random() * rndScale * 30 - 0.5 * rndScale * 30;
+        dummy.position.z += Math.random() * rndScale - 0.5 * rndScale;
+        dummy["updateMatrix"]();
+        tree.u.r.push(dummy.matrix.clone());
+        rootsInstancedMesh["setMatrixAt"](i * 8 + j, dummy.matrix);
+      }
+      place.u.i = i;
 
-    scene.add(place);
-    const material = new THREE.MeshBasicMaterial();
-
-    places.push(place);
-    // Random position in the scene
-    place.position.copy(position);
-    const placeSphere = new THREE.Mesh(new THREE.SphereGeometry(place.u["size"] / 10.0), material);
-    placeSphere.position.copy(place.position.clone());
-    placeSpheres.push(placeSphere);
-    place.u.sphere = placeSphere;
-    placeSphere.visible = false;
-    scene.add(placeSphere);
-
-    // Add the trees
-    const tree = new CustomGroup();
-    tree.position.copy(place.position);
-    trees.push(tree);
-    const dummy = new THREE.Object3D();
-    canopyInstancedMesh["setMatrixAt"](i, dummy.matrix);
-    tree["u"]["c"] = dummy.matrix.clone();
-    trunkInstancedMesh.setMatrixAt(i, dummy.matrix);
-    tree.u["t"] = dummy.matrix.clone();
-
-    // Air roots
-    const rndScale = 1.5;
-    tree.u["r"] = [];
-    for (let j = 0; j < 8; j++) {
-      dummy["matrix"]["identity"]()["decompose"](dummy.position, dummy.quaternion, dummy.scale);
-      dummy.position.x += Math.random() * rndScale * 30 - 0.5 * rndScale * 30;
-      dummy.position.z += Math.random() * rndScale - 0.5 * rndScale;
-      dummy["updateMatrix"]();
-      tree.u.r.push(dummy.matrix.clone());
-      rootsInstancedMesh["setMatrixAt"](i * 8 + j, dummy.matrix);
+      if (i === 0) {
+        place.u.owner = "p";
+        place.u.color = colors.playerUI;
+        place.u.troops = 100;
+        setTreeScaleAndRotation(i, 1);
+        place.u.scale = 1;
+      } else if (i === sphereCount - 1) {
+        place.u.owner = "e";
+        place.u.troops = 100;
+        place.u.color = colors.enemyUI;
+        setTreeScaleAndRotation(i, 0);
+      } else {
+        place.u.color = new THREE.Color(0xffffff); // White
+        setTreeScaleAndRotation(i, 0);
+      }
     }
-    place.u.i = i;
-
-    if (i === 0) {
-      place.u.owner = "p";
-      place.u.color = pColor;
-      place.u.troops = 100;
-      setTreeScaleAndRotation(i, 1);
-      place.u.scale = 1;
-    } else if (i === sphereCount - 1) {
-      place.u.owner = "e";
-      place.u.troops = 100;
-      place.u.color = eColor;
-      setTreeScaleAndRotation(i, 0);
-    } else {
-      place.u.color = new THREE.Color(0xffffff); // White
-      setTreeScaleAndRotation(i, 0);
-    }
-
-    setColorForAllChildren(place, place.u.color); // Set the color for all children (towers and main building
   }
-  // canopyInstancedMesh.castShadow = true;
-  scene.add(canopyInstancedMesh);
-  scene.add(trunkInstancedMesh);
-  scene.add(rootsInstancedMesh);
-
-  initComputeRenderer();
-  initKnights();
 
   textMaker = new TextMaker();
   scene.add(textMaker.instancedMesh);
@@ -499,23 +607,26 @@ const init = async () => {
       console.log("index", index);
       const place = places[index] as CustomGroup;
       if (place) {
-        setColorForAllChildren(place, selectedColor);
+        // Select color
+        setSelected(place, true);
       }
       if (startPlace && place !== startPlace) {
-        setColorForAllChildren(place, startPlace.u.color);
-        stretchLineBetweenPoints(line, startPlace.position, place.position);
+        // End select color
+        setSelected(place, true);
+        stretchLineBetweenPoints(line, startPlace, place);
       }
       if (endPlace !== place) {
-        if (endPlace) {
-          setColorForAllChildren(endPlace, endPlace.u.color);
+        // Reset color
+        if (endPlace && endPlace !== startPlace) {
+          setSelected(endPlace, false);
         }
         endPlace = place;
       }
     } else {
       // hide the line
       line.visible = false;
-      if (endPlace) {
-        setColorForAllChildren(endPlace, endPlace.u.color);
+      if (endPlace && endPlace !== startPlace) {
+        setSelected(endPlace, false);
       }
       // console.log("no start intersect");
     }
@@ -532,6 +643,7 @@ const init = async () => {
       if (place.u.owner === "p") {
         controls.enabled = false;
         startPlace = place as CustomGroup;
+        setSelected(startPlace, true);
         isDragging = true;
       }
     }
@@ -554,10 +666,12 @@ const init = async () => {
     controls.enabled = true;
     // Reset
     if (startPlace) {
-      setColorForAllChildren(startPlace, startPlace.u.color);
+      setSelected(startPlace, false);
+      // setColorForAllChildren(startPlace, startPlace.u.color);
     }
     if (endPlace) {
-      setColorForAllChildren(endPlace, endPlace.u.color);
+      setSelected(endPlace, false);
+      // setColorForAllChildren(endPlace, endPlace.u.color);
     }
     startPlace = null;
     endPlace = null;
@@ -565,22 +679,16 @@ const init = async () => {
     line.visible = false;
   }
 
-  function setColorForAllChildren(object: THREE.Group, color: THREE.Color) {
-    object["traverse"]((child) => {
-      if (child instanceof THREE.Mesh) {
-        const material = child.material as THREE.MeshStandardMaterial;
-        material.emissive.copy(color);
-        material.color.copy(color);
-        material["emissiveIntensity"] = 0.1;
-      }
-    });
+  function setSelected(place: CustomGroup, selected: boolean) {
+    console.log(place.id, "selected", selected);
+    place.u.shader.uniforms.selected.value = selected ? 1 : 0;
   }
+
   function updateTroopsDisplay(place: CustomGroup, troopsCount: number) {
     const intensity = Math.min(1, troopsCount / 100);
     if (place.u.troopsDisplay) {
       // The higher the number of troops, the closer the color should be
       // to the owner's color
-      // place.u.shield.morphTargetInfluences[0] = 0.5 + 0.4 * Math.sin(troopsCount / 10);
       place.u.troopsDisplay["updateText"](
         troopsCount.toString(),
         new THREE.Color(
@@ -596,21 +704,32 @@ const init = async () => {
     }
     // Also reflect troop numbers in tree size
     if (place.u.owner === "p") {
-      setTreeScaleAndRotation(
-        place.u.i,
-        Math.min(1, troopsCount / 100),
-        // Math.sin(new Date().getTime() / 1000) * 0.5 + 0.5,
-      );
+      setTreeScaleAndRotation(place.u.i, Math.min(1, troopsCount / 500));
+      place.position.setY(place.u.originalPosition.y);
+    } else if (place.u.owner === "e") {
+      setVolcanoScale(place, 0.1 + 0.2 * (troopsCount / 500));
     }
   }
 
+  function setVolcanoScale(place: CustomGroup, scale: number) {
+    const clampedScale = Math.min(Math.max(scale, 0.1), 0.3);
+    place.scale.setY(clampedScale);
+    place.position.setY(place.u.originalPosition.y + clampedScale * 0.5);
+  }
   function generateTroops(castle: CustomGroup, timeDelta: number) {
     const sizeFactor = castle.u.size; // Simple size measure
-    // TODO temp p adv
     if (castle.u.owner === "p") {
-      castle.u.troops += sizeFactor * timeDelta * 0.001;
+      let rate = 0.001;
+      if (difficulty === 0) {
+        rate = 0.0012;
+      }
+      castle.u.troops += sizeFactor * timeDelta * rate;
     } else if (castle.u.owner === "e") {
-      castle.u.troops += sizeFactor * timeDelta * 0.001;
+      let rate = 0.001;
+      if (difficulty === 0) {
+        rate = 0.0008;
+      }
+      castle.u.troops += sizeFactor * timeDelta * rate;
     }
     updateTroopsDisplay(castle, Math.floor(castle.u.troops));
   }
@@ -668,12 +787,9 @@ const init = async () => {
               // The castle has been conquered
               place.u.troops = 1;
               place.u.owner = shipOwner;
-              place.u.color = shipOwner === "p" ? pColor : eColor;
-              setColorForAllChildren(place as THREE.Group, place.u.color);
-
+              place.u.color = shipOwner === "p" ? colors.playerUI : colors.enemyUI;
               // Set target rotation
               // We will lerp towards this each frame, orientation is used for ownership graphics
-
               // Target rotation is PI left or PI right, depending on who the new owner is
               place.u.targetRotation += shipOwner === "p" ? Math.PI : -Math.PI;
               place.u.targetRotation = place.u.targetRotation % (Math.PI * 2);
@@ -732,13 +848,28 @@ const init = async () => {
         const gamepad = inputSource.gamepad;
         if (gamepad) {
           const axes = gamepad.axes;
-          if (axes[2] > 0.5 && currentTime - lastRotationTime > 250) {
+          if (axes[2] > 0.8 && currentTime - lastRotationTime > 250) {
             rotator.rotateY(-Math.PI / 4);
             lastRotationTime = currentTime;
-          } else if (axes[2] < -0.5 && currentTime - lastRotationTime > 250) {
+          } else if (axes[2] < -0.8 && currentTime - lastRotationTime > 250) {
             lastRotationTime = currentTime;
             rotator.rotateY(Math.PI / 4);
+          } else if (axes[3] > 0.5) {
+            // Move forward
+            const direction = new THREE.Vector3();
+            renderer.xr.getCamera().getWorldDirection(direction);
+            direction.applyQuaternion(rotator.quaternion);
+            // direction.applyAxisAngle(rotator.up, rotator.rotation.y);
+            rotator.position.addScaledVector(direction, -0.1);
+          } else if (axes[3] < -0.5) {
+            // Move backward
+            const direction = new THREE.Vector3();
+            renderer.xr.getCamera().getWorldDirection(direction);
+            direction.applyQuaternion(rotator.quaternion);
+            // direction.applyAxisAngle(rotator.up, rotator.rotation.y);
+            rotator.position.addScaledVector(direction, 0.1);
           }
+
           textMaker.cameraRotation = rotator.rotation.y;
         }
       }
@@ -763,12 +894,14 @@ const init = async () => {
       knightUniforms["tV"].value = tV;
 
       updatePointing();
+      // cycle between 0 and 1
+      line.material.dashOffset = (-time * 0.005) % (2 * 200);
 
       for (const place of places) {
-        const lerpSpeed = delta / 1200;
+        const lerpSpeed = delta / 100;
         const distance = place.u.targetRotation - place.rotation.x;
         if (Math.abs(distance) > 0.01) {
-          // When rotation is 0, e.g. p takes place then AI takes it back
+          // When rotation is 0, e.g. player takes place then AI takes it back
           // we need to invert the morph target.
           const invert = place.u.targetRotation === 0;
           place.rotation.x += distance * lerpSpeed;
@@ -783,7 +916,7 @@ const init = async () => {
           );
 
           if (place.u.owner === "p") {
-            place.u.scale = ((1 - Math.abs(distance / Math.PI)) * place.u.troops) / 100;
+            place.u.scale = ((1 - Math.abs(distance / Math.PI)) * place.u.troops) / 500;
           } else if (place.u.owner === "e") {
             place.u.scale = 0; // place.u.scale - lerpSpeed;
           }
@@ -793,14 +926,23 @@ const init = async () => {
             place.u.scale,
             place.rotation.x + place.u.targetRotation,
           );
+          if (place.u.shader) place.u.shader.uniforms.flipped.value = invert ? 1 : -1;
         }
+        let ownership = 0; // unowned
+        if (place.u.owner === "p") {
+          ownership = 1;
+        } else if (place.u.owner === "e") {
+          ownership = 2;
+        }
+        if (place.u.shader) place.u.shader.uniforms.ownership.value = ownership;
+        if (place.u.shader) place.u.shader.uniforms.time.value += delta / 1000.0;
       }
     }
     if (canopyMaterial.userData.shader) {
-      canopyMaterial.userData.shader.uniforms.time.value += 0.03;
+      canopyMaterial.userData.shader.uniforms.time.value += delta / 1000.0;
     }
     if (rootMaterial.userData.shader) {
-      rootMaterial.userData.shader.uniforms.time.value += 0.03;
+      rootMaterial.userData.shader.uniforms.time.value += delta / 1000.0;
     }
     renderer.render(scene, camera);
     // drawCallPanel.update(renderer.info.render.calls, 200);
@@ -811,22 +953,12 @@ const init = async () => {
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
 
-  window.addEventListener("mousedown", onPointerDown, false);
-  window.addEventListener("mousemove", onPointerMove, false);
-  window.addEventListener("mouseup", onPointerUp, false);
-  window.addEventListener("touchstart", onPointerDown, false);
-  window.addEventListener("touchmove", onPointerMove, false);
-  window.addEventListener("touchend", onPointerUp, false);
-
-  function getPointerPosition(event: MouseEvent | Touch) {
+  function getPointerPosition(event: PointerEvent) {
     return { x: event.clientX, y: event.clientY };
   }
 
-  function onPointerDown(event: MouseEvent | TouchEvent) {
-    const position =
-      event instanceof TouchEvent
-        ? getPointerPosition(event.touches[0])
-        : getPointerPosition(event);
+  function onPointerDown(event: PointerEvent) {
+    const position = getPointerPosition(event);
     mouse.x = (position.x / window.innerWidth) * 2 - 1;
     mouse.y = -(position.y / window.innerHeight) * 2 + 1;
 
@@ -836,13 +968,10 @@ const init = async () => {
     handleClickOrTriggerStart(intersects, event);
   }
 
-  function onPointerMove(event: MouseEvent | TouchEvent) {
+  function onPointerMove(event: PointerEvent) {
     if (!isDragging) return;
 
-    const position =
-      event instanceof TouchEvent
-        ? getPointerPosition(event.touches[0])
-        : getPointerPosition(event);
+    const position = getPointerPosition(event);
     mouse.x = (position.x / window.innerWidth) * 2 - 1;
     mouse.y = -(position.y / window.innerHeight) * 2 + 1;
 
@@ -851,14 +980,10 @@ const init = async () => {
     handlePointingMoving(intersects);
   }
 
-  function onPointerUp(event: MouseEvent | TouchEvent) {
+  function onPointerUp(event: PointerEvent) {
     if (!isDragging) return;
 
-    const position =
-      event instanceof TouchEvent
-        ? getPointerPosition(event.changedTouches[0])
-        : getPointerPosition(event);
-
+    const position = getPointerPosition(event);
     mouse.x = (position.x / window.innerWidth) * 2 - 1;
     mouse.y = -(position.y / window.innerHeight) * 2 + 1;
 
@@ -876,9 +1001,16 @@ const init = async () => {
 
       // Create a visual representation for the controller: a cube
       const geometry = new THREE.BoxGeometry(0.025, 0.025, 0.2);
-      const material = new THREE.MeshStandardMaterial({ color: pColor });
+      const material = new THREE.MeshStandardMaterial({ color: colors.player });
+
       const cube = new THREE.Mesh(geometry, material);
       controller.add(cube); // Attach the cube to the controller
+
+      const line = new THREE.Line();
+      line.geometry["setFromPoints"]([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
+      line.material = new THREE.LineBasicMaterial({ color: colors.player });
+      line.scale.z = 5;
+      controller.add(line);
 
       controllers.push(controller);
       controller.addEventListener("selectstart", () => onSelectStart(i));
@@ -916,7 +1048,118 @@ const init = async () => {
     shieldGeometry["morphAttributes"].position[0] = shieldGeometry2.attributes.position;
     shieldGeometry["morphAttributes"].normal[0] = shieldGeometry2.attributes.normal;
 
-    const shieldMaterial = new THREE.MeshStandardMaterial({ color: pColor });
+    const shieldMaterial = new THREE.MeshStandardMaterial({
+      defines: {
+        USE_UV: true,
+      },
+    });
+
+    shieldMaterial["onBeforeCompile"] = (shader) => {
+      place.u.shader = shader;
+      shader.vertexShader =
+        `varying vec3 vNorm;
+        uniform vec3 mPos;
+        varying vec3 vPos;
+      ` + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <begin_vertex>",
+        `
+        #include <begin_vertex>
+        // vNorm = normalize ( mat3( modelMatrix[0].xyz, modelMatrix[1].xyz, modelMatrix[2].xyz ) * normal );
+        vNorm = normal;
+        vPos = mPos;
+        `,
+      );
+      shader.uniforms.time = { value: 0 };
+      shader.uniforms.ownership = {
+        value: place.u.owner === "p" ? 1 : place.u.owner === "e" ? 2 : 0,
+      };
+      shader.uniforms.flipped = { value: 1 };
+      shader.uniforms.selected = { value: 0 };
+      shader.uniforms.mPos = { value: place.position };
+
+      shader.fragmentShader =
+        `uniform float ownership;
+        uniform float flipped;
+        uniform float time;
+        varying vec3 vNorm;
+        varying vec3 vPos;
+        uniform float selected;
+      ` + shader.fragmentShader;
+      // console.log(shader.fragmentShader);
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <logdepthbuf_fragment>",
+        `
+        #include <logdepthbuf_fragment>
+
+        // Colors for different ownerships
+        vec3 topUnownedColor = vec3(0.7, 0.7, 0.7);  // bland
+        vec3 topPlayerColor = vec3(0.0, 1.0, 0.0);  // lush green
+        vec3 topEnemyColor = vec3(1.0, 1.0, .3);  // red lava
+        vec3 topBaseColor = mix(topUnownedColor, mix(topPlayerColor, topEnemyColor, step(1.5, ownership)), step(0.5, ownership));
+    
+        vec3 sideUnownedColor = vec3(0.5, 0.5, 0.5);  // bland
+        vec3 sidePlayerColor = vec3(0.11, 0.03, 0.01);  // brown
+        vec3 sideEnemyColor = vec3(.03, .03, .03);  // red lava
+        vec3 sideBaseColor = mix(sideUnownedColor, mix(sidePlayerColor, sideEnemyColor, step(1.5, ownership)), step(0.5, ownership));
+
+        vec3 bottomUnownedColor = vec3(0.5, 0.5, 0.5);  // bland
+        vec3 bottomPlayerColor = vec3(0.11, 0.03, 0.01) * 0.4;  // brown
+        vec3 bottomEnemyColor = vec3(0.6, 0.0, 0.0);  // red lava
+        vec3 bottomBaseColor = mix(bottomUnownedColor, mix(bottomPlayerColor, bottomEnemyColor, step(1.5, ownership)), step(0.5, ownership));
+
+        float vNormy = vNorm.y * flipped;
+        float offsetTime = time / 2.0 + vPos.x + vPos.z; // Offset based on position of volcano
+        float intensity = 2.*(offsetTime + 0.5+0.5*sin(offsetTime));
+
+        float dist = distance(vUv, vec2(0.5, 0.5));
+
+        if(vNormy <= -0.99) {
+            // Bottom circle: Black color
+            float adj = mix(1.0, 0.3, step(1.5, ownership));
+            diffuseColor.rgb = mix(bottomBaseColor * adj, bottomBaseColor, dist * 1.0);
+
+          } else if (vNormy >= 0.99) {
+          // Calculate distance from center of the UV circle (which should be at (0.5, 0.5) for standard UVs).
+
+          vec3 darkerBaseColor = topBaseColor * 0.3;
+
+          if (ownership < 1.5) {
+            diffuseColor.rgb = mix(darkerBaseColor, topBaseColor, dist * 1.0);
+          } else {
+            float color = (1.0 - dist) * sin(intensity + 3.1) + 0.1;
+            diffuseColor.rgb =  vec3(color, 0., 0.);
+          }
+        } else {
+          // Get a normalized y-coordinate to have a gradient from top to bottom
+          float vUvy = mix(1.0 - vUv.y, vUv.y, min(flipped + 1.0, 1.0));
+          float gradient = 1.0 - vUvy;
+
+          if (ownership == 2.0) {
+            // // Amplify colors on the top of the cylinder
+            float topBoost = smoothstep(0.3, 1.0, vUvy);
+        
+            // Undulation effect
+            float wave = 0.9 * sin(vUvy * 15.0 + intensity) + 0.9;
+            // Wave pattern along the height of the cylinder
+  
+            // Angular factor to make lava flow unevenly
+            float angularFactor = 0.5 * sin(vUv.x * 2.* PI + vPos.x + vPos.z) + 0.5;
+        
+            // Combined undulation and flow control
+            float flow = topBoost * wave * angularFactor;
+            float color = sideBaseColor.r * flow;
+
+            diffuseColor.rgb = sideBaseColor + vec3(1.,0.,0.)*(flow);
+          } else {
+            diffuseColor.rgb = mix(sideBaseColor, bottomBaseColor, gradient);
+          }
+        }
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 2.0, selected * (0.5+0.5*sin(8.0*time)));
+
+        `,
+      );
+    };
 
     const shield = new THREE.Mesh(shieldGeometry, shieldMaterial);
     // shield.receiveShadow = true;
@@ -947,6 +1190,7 @@ const init = async () => {
     // createTextSprite("Game started!", false, true);
     if (xrSupport) {
       await xrManager.startSession();
+      renderer.xr.setFoveation(0);
       // const ref = renderer.xr.getReferenceSpace();
 
       initControllers();
@@ -958,14 +1202,18 @@ const init = async () => {
     document.getElementById("i")?.remove();
     controls.autoRotate = false;
     gameStarted = true;
-    window.onblur = () => {
-      gameStarted = false;
-      togglePauseScreen();
-    };
-    window.onfocus = () => {
-      gameStarted = true;
-      togglePauseScreen();
-    };
+
+    window.addEventListener("pointerdown", onPointerDown, false);
+    window.addEventListener("pointermove", onPointerMove, false);
+    window.addEventListener("pointerup", onPointerUp, false);
+    // window.onblur = () => {
+    //   gameStarted = false;
+    //   togglePauseScreen();
+    // };
+    // window.onfocus = () => {
+    //   gameStarted = true;
+    //   togglePauseScreen();
+    // };
     // TODO!! window.onbeforeunload = (e) => (e.returnValue = "Game in progress");
     // P pauses the game
     document.addEventListener("keydown", (e) => {
@@ -977,31 +1225,37 @@ const init = async () => {
     (window as any).scene = scene;
 
     // Simple AI sends attacks high priority targets and low resistance targets
-    setInterval(
-      () => {
-        // Random e owned castle
-        const eCastles = places.filter((p) => p.u.owner === "e");
-        const otherCastles = places.filter((p) => !eCastles.includes(p));
-        // const pCastles = places.filter((p) => p.u.owner === "p");
-
-        // Sort by a combination of size and troops, giving priority to larger places with fewer troops.
-        const highValueTargets = otherCastles.sort(
-          (a, b) => b.u.size / (b.u.troops + 1) - a.u.size / (a.u.troops + 1),
-        );
-        const startPlace = eCastles[Math.floor(Math.random() * eCastles.length)];
-        // Prioritize attacking places based priority, but attack random ones based on level
-        const randomness = Math.random() < difficulty / 3;
-        const endPlace = randomness
-          ? highValueTargets[0]
-          : otherCastles[Math.floor(Math.random() * otherCastles.length)];
-
-        if (startPlace && endPlace && startPlace !== endPlace) {
-          sendFleetFromPlaceToPlace(startPlace, endPlace);
-        }
-      },
-      5000 - difficulty * 1000,
-    );
+    setTimeout(doAI, Math.random() * 5000 - difficulty * 1000);
   }
+
+  function aiDelay() {
+    const interval = Math.random() * (14000 - difficulty * 3000) + (3 - difficulty) * 2000;
+    return interval;
+  }
+
+  function doAI() {
+    // Random e owned castle
+    const eCastles = places.filter((p) => p.u.owner === "e");
+    const otherCastles = places.filter((p) => !eCastles.includes(p));
+    // const pCastles = places.filter((p) => p.u.owner === "p");
+
+    // Sort by a combination of size and troops, giving priority to larger places with fewer troops.
+    const highValueTargets = otherCastles.sort(
+      (a, b) => b.u.size / (b.u.troops + 1) - a.u.size / (a.u.troops + 1),
+    );
+    const startPlace = eCastles[Math.floor(Math.random() * eCastles.length)];
+    // Prioritize attacking places based priority, but attack random ones based on level
+    const randomness = Math.random() < difficulty / 3;
+    const endPlace = randomness
+      ? highValueTargets[0]
+      : otherCastles[Math.floor(Math.random() * otherCastles.length)];
+
+    if (startPlace && endPlace && startPlace !== endPlace) {
+      sendFleetFromPlaceToPlace(startPlace, endPlace);
+    }
+    setTimeout(doAI, aiDelay());
+  }
+
   function togglePauseScreen() {
     lastGenerationTime = Date.now();
     const style = gameStarted ? "none" : "block";
@@ -1044,8 +1298,8 @@ const init = async () => {
     knightUniforms = {
       "tP": { value: null },
       "tV": { value: null },
-      "eC": { value: eColor },
-      "pC": { value: pColor },
+      "eC": { value: colors.enemy },
+      "pC": { value: colors.player },
     };
 
     const material = new THREE.ShaderMaterial({
@@ -1058,6 +1312,19 @@ const init = async () => {
     const mesh = new THREE.InstancedMesh(instancedGeometry, material, PARTICLES);
     mesh["frustumCulled"] = false;
     scene.add(mesh);
+  }
+
+  function changePlaces() {
+    const dtPosition = gpuCompute.createTexture();
+    const dtVelocity = gpuCompute.createTexture();
+
+    fillTextures(dtPosition, dtVelocity);
+    const rt = gpuCompute.getCurrentRenderTarget(positionVariable);
+    // gpuCompute.renderTexture(dtPosition, positionVariable.renderTargets[0]);
+    gpuCompute.renderTexture(dtPosition, rt);
+    dtVelocity.needsUpdate = true;
+    const rtv = gpuCompute.getCurrentRenderTarget(velocityVariable);
+    gpuCompute.renderTexture(dtVelocity, rtv);
   }
 
   function sendFleetFromPlaceToPlace(startPlace: CustomGroup, endPlace: CustomGroup) {
@@ -1084,8 +1351,6 @@ const init = async () => {
       const posArray = dtPosition.image.data;
 
       for (let i = 0; i < slots.length; i++) {
-        // Ships should be spread out in the direction of the target
-        // const direction = new THREE.Vector3().subVectors(endPlace.position, source);
         const index = slots[i];
         if (owner === "p") {
           posArray[index] = source.x + (Math.random() - 0.5) * 0.1;
@@ -1093,12 +1358,11 @@ const init = async () => {
           posArray[index + 2] = source.z + (Math.random() - 0.5) * 0.1;
           posArray[index + 3] = 0.6; // ship type
         } else {
-          posArray[index] = source.x + (Math.random() - 0.5) * 0.1;
+          posArray[index] = source.x + (Math.random() - 0.5) * 0.01;
           posArray[index + 1] = source.y + Math.random() * 0.5;
-          posArray[index + 2] = source.z + (Math.random() - 0.5) * 0.1;
+          posArray[index + 2] = source.z + (Math.random() - 0.5) * 0.01;
           posArray[index + 3] = 0.601; // ship type
         }
-        // direction.normalize();
       }
       removeComputeCallback("tP", positionCallback);
       dtPosition.needsUpdate = true;
@@ -1110,8 +1374,19 @@ const init = async () => {
       const rtv = gpuCompute.getCurrentRenderTarget(velocityVariable);
       gpuCompute.renderTexture(dtVelocity, rtv);
 
-      console.log("Added units", slots.length, "to", endPlace.id, "from", source, "for", owner);
-      startPlace.u.troops -= startPlace.u.troops / 2;
+      console.log(
+        "Added units",
+        slots.length,
+        "to",
+        targetId,
+        "from",
+        source,
+        endPlace.position,
+        `(${dtTarget})`,
+        "for",
+        owner,
+      );
+      startPlace.u.troops -= slots.length / 2;
       slots.length = 0;
       unitLaunchInProgress = false;
     };

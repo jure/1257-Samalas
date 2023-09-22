@@ -42,7 +42,7 @@
 //
 //    Orbit - left mouse / touch: one-finger move
 //    Zoom - middle mouse, or mousewheel / touch: two-finger spread or squish
-
+import * as THREE from "three";
 const _changeEvent = new Event({ type: "change" });
 const _startEvent = new Event({ type: "start" });
 const _endEvent = { type: "end" };

@@ -8,7 +8,7 @@ attribute vec2 dtUv;
 varying vec4 vColor;
 varying vec4 vPosition;
 varying vec4 vVelocity;
-
+varying float vEnemy;
 bool compareFloats(float a, float b, float epsilon) {
   return abs(a - b) < epsilon;
 }
@@ -31,11 +31,14 @@ void main() {
 
   if(compareFloats(posTemp.w, 0.600, 0.0001)) {
     vColor = vec4(pC,1.);
+    vEnemy = 0.0;
   } else if (compareFloats(posTemp.w,0.601, 0.0001)) {
     vColor = vec4(eC,1.);
+    vEnemy = 1.0;
   } else {
     vColor = vec4( 1.0, 1.0, 0.0, 0.0 );
   }
+
   
   vVelocity = velTemp;
   vec3 newPos = mat3(modelMatrix) * position;
