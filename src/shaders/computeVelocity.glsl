@@ -99,7 +99,7 @@
       // Dynamics
       vel += delta * acceleration;
       if(length(vel) > 0.) {
-        vel = normalize( vel ) * min( length( vel ), 1.5 * (d+1.));
+        vel = normalize( vel ) * min( length( vel ), 1.0 * (d+1.));
       }
     } else {
       // Dead particle, reset it

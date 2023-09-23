@@ -56,6 +56,7 @@ const trees: CustomGroup[] = [];
 let difficulty = 0;
 let controllerLock: null | number = null;
 let lastRotationTime = 0;
+const cameraDirection = new THREE.Vector3();
 
 class CustomGroup extends THREE.Group {
   u: any = {};
@@ -856,18 +857,16 @@ const init = async () => {
             rotator.rotateY(Math.PI / 4);
           } else if (axes[3] > 0.5) {
             // Move forward
-            const direction = new THREE.Vector3();
-            renderer.xr.getCamera().getWorldDirection(direction);
-            direction.applyQuaternion(rotator.quaternion);
-            // direction.applyAxisAngle(rotator.up, rotator.rotation.y);
-            rotator.position.addScaledVector(direction, -0.1);
+            renderer.xr.getCamera().getWorldDirection(cameraDirection);
+            cameraDirection.applyQuaternion(rotator.quaternion);
+            // cameraDirection.applyAxisAngle(rotator.up, rotator.rotation.y);
+            rotator.position.addScaledVector(cameraDirection, -0.1);
           } else if (axes[3] < -0.5) {
             // Move backward
-            const direction = new THREE.Vector3();
-            renderer.xr.getCamera().getWorldDirection(direction);
-            direction.applyQuaternion(rotator.quaternion);
-            // direction.applyAxisAngle(rotator.up, rotator.rotation.y);
-            rotator.position.addScaledVector(direction, 0.1);
+            renderer.xr.getCamera().getWorldDirection(cameraDirection);
+            cameraDirection.applyQuaternion(rotator.quaternion);
+            // cameraDirection.applyAxisAngle(rotator.up, rotator.rotation.y);
+            rotator.position.addScaledVector(cameraDirection, 0.1);
           }
 
           textMaker.cameraRotation = rotator.rotation.y;
@@ -1219,8 +1218,26 @@ const init = async () => {
     document.addEventListener("keydown", (e) => {
       if (e.key === "p") {
         gameStarted = !gameStarted;
+        togglePauseScreen();
       }
-      togglePauseScreen();
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      const right = new THREE.Vector3();
+      right.crossVectors(camera.up, forward);
+      const moveSpeed = 0.1;
+      if (e.key === "w") {
+        camera.position.addScaledVector(forward, moveSpeed);
+        controls._target.addScaledVector(forward, moveSpeed);
+      } else if (e.key === "s") {
+        camera.position.addScaledVector(forward, -moveSpeed);
+        controls._target.addScaledVector(forward, -moveSpeed);
+      } else if (e.key === "d") {
+        camera.position.addScaledVector(right, -moveSpeed);
+        controls._target.addScaledVector(right, -moveSpeed);
+      } else if (e.key === "a") {
+        camera.position.addScaledVector(right, moveSpeed);
+        controls._target.addScaledVector(right, moveSpeed);
+      }
     });
     (window as any).scene = scene;
 
@@ -1229,8 +1246,31 @@ const init = async () => {
   }
 
   function aiDelay() {
-    const interval = Math.random() * (14000 - difficulty * 3000) + (3 - difficulty) * 2000;
-    return interval;
+    let min, max;
+
+    switch (difficulty) {
+      case 0:
+        min = 7;
+        max = 9;
+        break;
+      case 1:
+        min = 5;
+        max = 7;
+        break;
+      case 2:
+        min = 3;
+        max = 5;
+        break;
+      case 3:
+        min = 2;
+        max = 3;
+        break;
+      default:
+        throw new Error("Invalid difficulty level");
+    }
+
+    // Return a random delay between the min and max values
+    return (min + Math.random() * (max - min)) * 1000;
   }
 
   function doAI() {
