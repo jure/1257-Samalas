@@ -27,7 +27,7 @@ export const level1 = function (i: number, sphereCount: number) {
   // Player is at the center bottom
   if (i === 0) {
     existingPoints.length = 0;
-    const playerPos = new THREE.Vector3(0, 0, -1);
+    const playerPos = new THREE.Vector3(0, 0, -0.5);
     existingPoints.push(playerPos);
     return playerPos;
   } else if (i === sphereCount - 1) {

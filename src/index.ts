@@ -544,7 +544,7 @@ const init = async () => {
         place.u.owner = "p";
         place.u.color = colors.playerUI;
         place.u.troops = 100;
-        setTreeScaleAndRotation(i, 1);
+        setTreeScaleAndRotation(i, 0.25);
         place.u.scale = 1;
       } else if (i === sphereCount - 1) {
         place.u.owner = "e";
